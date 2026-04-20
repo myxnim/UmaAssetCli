@@ -1,7 +1,6 @@
 using System.Text.RegularExpressions;
-using UmaAssetCli.Models;
 
-namespace UmaAssetCli.Services;
+namespace UmaAsset.Game.Services;
 
 public static partial class CharaIconPathParser
 {

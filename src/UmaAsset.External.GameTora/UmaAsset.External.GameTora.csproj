@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\UmaAsset.Core\UmaAsset.Core.csproj" />
+  </ItemGroup>
+</Project>

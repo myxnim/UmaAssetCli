@@ -4,10 +4,9 @@ using AssetsTools.NET.Texture;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
-using UmaAssetCli.Models;
 using Image = SixLabors.ImageSharp.Image;
 
-namespace UmaAssetCli.Services;
+namespace UmaAsset.Game.Services;
 
 public sealed class TextureBundleExporter
 {

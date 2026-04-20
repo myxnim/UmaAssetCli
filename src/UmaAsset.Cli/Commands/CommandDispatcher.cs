@@ -1,8 +1,6 @@
 using System.Text.Json;
-using UmaAssetCli.Models;
-using UmaAssetCli.Services;
 
-namespace UmaAssetCli.Commands;
+namespace UmaAsset.Cli.Commands;
 
 public sealed class CommandDispatcher
 {
@@ -19,6 +17,7 @@ public sealed class CommandDispatcher
             return Task.FromResult(args[0].ToLowerInvariant() switch
             {
                 "detect" => RunDetect(),
+                "sync-gametora" => RunSyncGameTora(args[1..]),
                 "lookup" => RunLookup(args[1..]),
                 "stage" => RunStage(args[1..], treatIdsAsCharaIcons: false),
                 "stage-chara-icons" => RunStage(args[1..], treatIdsAsCharaIcons: true),
@@ -49,6 +48,34 @@ public sealed class CommandDispatcher
             Console.WriteLine($"{install.Name}: {install.Path}");
         }
 
+        return 0;
+    }
+
+    private static int RunSyncGameTora(string[] args)
+    {
+        var options = ParseOptions(args);
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "gametora");
+        var cacheDirectory = GetSingle(options, "--cache-dir")
+            ?? Path.Combine(Environment.CurrentDirectory, ".cache_gametora");
+        var server = GetSingle(options, "--server") ?? "global";
+        var includeSupports = options.ContainsKey("--include-supports");
+        var noFetch = options.ContainsKey("--no-fetch");
+
+        var sync = new GameToraCatalogSync(cacheDirectory, noFetch);
+        var artifacts = sync.SyncAsync(output, includeSupports, server).GetAwaiter().GetResult();
+
+        Console.WriteLine($"Character catalog -> {artifacts.CharacterCatalogPath}");
+        Console.WriteLine($"Skill catalog -> {artifacts.SkillCatalogPath}");
+        if (!string.IsNullOrWhiteSpace(artifacts.SupportCatalogPath))
+        {
+            Console.WriteLine($"Support catalog -> {artifacts.SupportCatalogPath}");
+        }
+        Console.WriteLine($"Metadata -> {artifacts.MetadataPath}");
+        Console.WriteLine();
+        Console.WriteLine($"Characters: {artifacts.CharacterCount}");
+        Console.WriteLine($"Skills: {artifacts.SkillCount}");
+        Console.WriteLine($"Supports: {artifacts.SupportCount}");
         return 0;
     }
 
@@ -289,6 +316,10 @@ public sealed class CommandDispatcher
         Console.WriteLine("  detect");
         Console.WriteLine("    Detect local Umamusume data installs.");
         Console.WriteLine();
+        Console.WriteLine("  sync-gametora [--output <dir>] [--cache-dir <dir>] [--no-fetch] [--include-supports] [--server <global|japan>]");
+        Console.WriteLine("    Fetch GameTora metadata catalogs for characters and skills.");
+        Console.WriteLine("    Supports are optional and only included when --include-supports is passed.");
+        Console.WriteLine();
         Console.WriteLine("  lookup --name <resource> [--name <resource> ...] [--uma-dir <path>] [--json]");
         Console.WriteLine("    Resolve manifest entries by full resource name or basename.");
         Console.WriteLine();
@@ -311,11 +342,12 @@ public sealed class CommandDispatcher
         Console.WriteLine("    Scan organized extracted assets and write a JSON manifest keyed by character id.");
         Console.WriteLine();
         Console.WriteLine("Examples");
-        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- detect");
-        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- lookup --name chr_icon_1058_105801_02 --json");
-        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- stage-chara-icons --ids 1058 105801 --decrypt --output .\out\icons");
-        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- extract-chara-icons --ids 1058 105801 --output .\out\png");
-        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized");
-        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- detect");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- sync-gametora --output .\out\gametora --include-supports");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- lookup --name chr_icon_1058_105801_02 --json");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- stage-chara-icons --ids 1058 105801 --decrypt --output .\out\icons");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --output .\out\png");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json");
     }
 }

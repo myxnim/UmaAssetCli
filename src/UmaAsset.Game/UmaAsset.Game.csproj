@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\UmaAsset.Core\UmaAsset.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AssetsTools.NET" />
+    <PackageReference Include="AssetsTools.NET.Texture" />
+    <PackageReference Include="SixLabors.ImageSharp" />
+    <PackageReference Include="sqlite-net-base" />
+    <PackageReference Include="SQLite3MC.PCLRaw.bundle" />
+  </ItemGroup>
+</Project>

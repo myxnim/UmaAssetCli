@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\UmaAsset.Core\UmaAsset.Core.csproj" />
+    <ProjectReference Include="..\UmaAsset.Game\UmaAsset.Game.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,4 @@
-namespace UmaAssetCli.Models;
+namespace UmaAsset.Core.Models;
 
 public sealed class GeneratedAssetManifest
 {

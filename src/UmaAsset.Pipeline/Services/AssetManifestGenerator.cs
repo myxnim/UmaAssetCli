@@ -1,7 +1,6 @@
 using System.Text.Json;
-using UmaAssetCli.Models;
 
-namespace UmaAssetCli.Services;
+namespace UmaAsset.Pipeline.Services;
 
 public static class AssetManifestGenerator
 {

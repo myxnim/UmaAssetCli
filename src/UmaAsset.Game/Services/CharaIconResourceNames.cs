@@ -1,4 +1,4 @@
-namespace UmaAssetCli.Services;
+namespace UmaAsset.Game.Services;
 
 public static class CharaIconResourceNames
 {

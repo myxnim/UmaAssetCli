@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
-using UmaAssetCli.Models;
 
-namespace UmaAssetCli.Services;
+namespace UmaAsset.Game.Services;
 
 public static class UmaInstallLocator
 {

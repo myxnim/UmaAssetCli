@@ -1,6 +1,6 @@
 using SQLite;
 
-namespace UmaAssetCli.Models;
+namespace UmaAsset.Core.Models;
 
 [Table("a")]
 public sealed class ManifestEntry

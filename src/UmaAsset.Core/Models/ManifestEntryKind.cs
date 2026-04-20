@@ -1,4 +1,4 @@
-namespace UmaAssetCli.Models;
+namespace UmaAsset.Core.Models;
 
 public enum ManifestEntryKind : byte
 {

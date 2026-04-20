@@ -1,6 +1,4 @@
-using UmaAssetCli.Models;
-
-namespace UmaAssetCli.Services;
+namespace UmaAsset.Game.Services;
 
 public sealed class AssetExporter
 {
