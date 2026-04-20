@@ -24,6 +24,7 @@ public sealed class CommandDispatcher
                 "stage-chara-icons" => RunStage(args[1..], treatIdsAsCharaIcons: true),
                 "extract-textures" => RunExtractTextures(args[1..], treatIdsAsCharaIcons: false),
                 "extract-chara-icons" => RunExtractTextures(args[1..], treatIdsAsCharaIcons: true),
+                "generate-manifest" => RunGenerateManifest(args[1..]),
                 _ => Fail($"Unknown command '{args[0]}'."),
             });
         }
@@ -110,12 +111,13 @@ public sealed class CommandDispatcher
         {
             var plate = ParseInt(GetSingle(options, "--plate"), fallback: 2);
             var ids = GatherValues(options, "--ids");
+            var families = GatherValues(options, "--family");
             if (ids.Count == 0)
             {
                 return Fail("stage-chara-icons expects at least one value after --ids.");
             }
 
-            requestedNames.AddRange(CharaIconResourceNames.FromIds(ids, plate));
+            requestedNames.AddRange(CharaIconResourceNames.FromIds(ids, plate, families));
         }
 
         if (requestedNames.Count == 0)
@@ -170,12 +172,13 @@ public sealed class CommandDispatcher
         {
             var plate = ParseInt(GetSingle(options, "--plate"), fallback: 2);
             var ids = GatherValues(options, "--ids");
+            var families = GatherValues(options, "--family");
             if (ids.Count == 0)
             {
                 return Fail("extract-chara-icons expects at least one value after --ids.");
             }
 
-            requestedNames.AddRange(CharaIconResourceNames.FromIds(ids, plate));
+            requestedNames.AddRange(CharaIconResourceNames.FromIds(ids, plate, families));
         }
 
         if (requestedNames.Count == 0)
@@ -205,6 +208,19 @@ public sealed class CommandDispatcher
             }
         }
 
+        return 0;
+    }
+
+    private static int RunGenerateManifest(string[] args)
+    {
+        var options = ParseOptions(args);
+        var input = GetSingle(options, "--input")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "organized");
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(input, "character-icons.json");
+
+        var written = AssetManifestGenerator.Write(input, output);
+        Console.WriteLine(written);
         return 0;
     }
 
@@ -282,17 +298,24 @@ public sealed class CommandDispatcher
         Console.WriteLine("  stage-chara-icons --ids <id> [<id> ...] [--plate <n>] [--output <dir>] [--decrypt] [--flatten] [--uma-dir <path>]");
         Console.WriteLine("    Resolve character icon bundle names from IDs.");
         Console.WriteLine("    4-digit ids are base icons, 6-digit ids are trained/dress icons.");
+        Console.WriteLine("    Repeat --family with chr, trained, round, plus to include multiple icon families.");
         Console.WriteLine();
         Console.WriteLine("  extract-textures --name <resource> [--texture-name <name> ...] [--output <dir>] [--uma-dir <path>]");
         Console.WriteLine("    Load bundle files and export matching Texture2D assets as PNG files.");
         Console.WriteLine();
         Console.WriteLine("  extract-chara-icons --ids <id> [<id> ...] [--plate <n>] [--output <dir>] [--uma-dir <path>]");
         Console.WriteLine("    Resolve character icon bundle names from IDs and export Texture2D PNGs.");
+        Console.WriteLine("    Repeat --family with chr, trained, round, plus to include multiple icon families.");
+        Console.WriteLine();
+        Console.WriteLine("  generate-manifest [--input <dir>] [--output <file>]");
+        Console.WriteLine("    Scan organized extracted assets and write a JSON manifest keyed by character id.");
         Console.WriteLine();
         Console.WriteLine("Examples");
         Console.WriteLine(@"  dotnet run --project UmaAssetCli -- detect");
         Console.WriteLine(@"  dotnet run --project UmaAssetCli -- lookup --name chr_icon_1058_105801_02 --json");
         Console.WriteLine(@"  dotnet run --project UmaAssetCli -- stage-chara-icons --ids 1058 105801 --decrypt --output .\out\icons");
         Console.WriteLine(@"  dotnet run --project UmaAssetCli -- extract-chara-icons --ids 1058 105801 --output .\out\png");
+        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized");
+        Console.WriteLine(@"  dotnet run --project UmaAssetCli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json");
     }
 }

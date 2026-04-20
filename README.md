@@ -23,6 +23,8 @@ dotnet run --project UmaAssetCli -- detect
 dotnet run --project UmaAssetCli -- lookup --name chr_icon_1058_105801_02 --json
 dotnet run --project UmaAssetCli -- stage-chara-icons --ids 1058 105801 105802 --decrypt --output .\out\icons
 dotnet run --project UmaAssetCli -- extract-chara-icons --ids 1058 105801 --output .\out\png
+dotnet run --project UmaAssetCli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized
+dotnet run --project UmaAssetCli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json
 ```
 
 Notes:
@@ -30,9 +32,11 @@ Notes:
 - `--uma-dir` should point at the game's `Persistent` directory when you need to override auto-detection.
 - `stage-chara-icons` treats 4-digit ids as base character ids and 6-digit ids as trained/dress ids.
 - `extract-chara-icons` resolves the same ids but exports PNG files directly from the Unity bundle.
+- Repeat `--family` to include multiple icon families in one pass. Supported values are `chr`, `trained`, `round`, and `plus`.
 - `extract-textures` can export all `Texture2D` assets in a bundle, or filter them with `--texture-name`.
 - Character icon families are organized under `character/<characterId>/icons/<family>/`.
 - Current family names are `icon`, `dress-icon`, `trained-icon`, `round-icon`, and `plus-icon` when those textures exist.
+- `generate-manifest` writes a `character-icons.json` file keyed by character id with family-grouped relative asset paths.
 - `--decrypt` writes a decrypted copy of the bundle file. It does not yet unpack Unity assets into PNGs.
 - Encrypted `meta` support uses the `SQLite3MC.PCLRaw.bundle` package instead of the stock `SQLitePCLRaw` bundle.
 - In this workspace, direct texture export is working for character icon bundles.
