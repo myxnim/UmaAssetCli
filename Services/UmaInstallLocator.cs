@@ -8,22 +8,21 @@ public static class UmaInstallLocator
     public static IReadOnlyList<UmaInstall> DetectAll()
     {
         var installs = new List<UmaInstall>();
+        var localLow = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "AppData",
+            "LocalLow",
+            "Cygames");
 
         AddIfValid(
             installs,
             "Default (AppData)",
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low",
-                "Cygames",
-                "umamusume"));
+            Path.Combine(localLow, "umamusume"));
 
         AddIfValid(
             installs,
-            "Default (AppData JP)",
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low",
-                "Cygames",
-                "UmamusumePrettyDerby_Jpn"));
+            "Default (AppData Japan)",
+            Path.Combine(localLow, "UmamusumePrettyDerby_Jpn"));
 
         foreach (var dmmInstall in DetectDmmInstalls())
         {
@@ -42,7 +41,10 @@ public static class UmaInstallLocator
                 "UmamusumePrettyDerby_Jpn_Data",
                 "Persistent"));
 
-        return installs;
+        return installs
+            .GroupBy(static install => install.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(static group => group.First())
+            .ToArray();
     }
 
     public static UmaInstall Resolve(string? explicitPath)
@@ -132,7 +134,7 @@ public static class UmaInstallLocator
             }
 
             yield return new UmaInstall(
-                "DMM Games",
+                "DMM Games (Japan)",
                 Path.Combine(installDir, "umamusume_Data", "Persistent"));
         }
     }
