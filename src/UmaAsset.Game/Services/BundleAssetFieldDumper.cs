@@ -16,7 +16,10 @@ public sealed class BundleAssetFieldDumper
     public string Dump(ManifestEntry entry, string assetName)
     {
         var assetsManager = new AssetsManager();
-        using var assetStream = OpenBundleStream(entry);
+        using var staged = GameFileStager.StageBundleFile(manifestDatabase.GetDataFilePath(entry));
+        using var assetStream = entry.EncryptionKey != 0
+            ? new EncryptedAssetStream(staged.Path, entry.EncryptionKey)
+            : new FileStream(staged.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
         var bundle = assetsManager.LoadBundleFile(assetStream);
 
         foreach (var assetsFileName in bundle.file.GetAllFileNames())
@@ -94,16 +97,5 @@ public sealed class BundleAssetFieldDumper
         {
             return string.Empty;
         }
-    }
-
-    private FileStream OpenBundleStream(ManifestEntry entry)
-    {
-        var sourcePath = manifestDatabase.GetDataFilePath(entry);
-        if (entry.EncryptionKey != 0)
-        {
-            return new EncryptedAssetStream(sourcePath, entry.EncryptionKey);
-        }
-
-        return new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
     }
 }

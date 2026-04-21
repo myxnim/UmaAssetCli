@@ -1,0 +1,330 @@
+namespace UmaAsset.Pipeline.Services;
+
+public static class AtlasUiCatalogDefinitions
+{
+    public static IReadOnlyList<AtlasUiCatalogDefinition> GetDefinitions(IEnumerable<string>? requestedCatalogs = null)
+    {
+        var requested = requestedCatalogs?
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Select(static value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
+
+        var definitions = AllDefinitions;
+        if (requested.Length == 0 || requested.Contains("all", StringComparer.OrdinalIgnoreCase))
+        {
+            return definitions;
+        }
+
+        return definitions
+            .Where(definition => requested.Contains(definition.CatalogName, StringComparer.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
+    public static IReadOnlyList<string> SupportedCatalogs => AllDefinitions
+        .Select(static definition => definition.CatalogName)
+        .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    private static readonly IReadOnlyList<AtlasUiCatalogDefinition> AllDefinitions =
+    [
+        new(
+            "ui-common-icons",
+            "common_tex",
+            [
+                new("mood", "awful", "AWFUL", "utx_ico_motivation_m_00"),
+                new("mood", "bad", "BAD", "utx_ico_motivation_m_01"),
+                new("mood", "normal", "NORMAL", "utx_ico_motivation_m_02"),
+                new("mood", "good", "GOOD", "utx_ico_motivation_m_03"),
+                new("mood", "great", "GREAT", "utx_ico_motivation_m_04"),
+
+                new("stat-icon", "speed", "SPEED", "utx_ico_charastatus_00"),
+                new("stat-icon", "stamina", "STAMINA", "utx_ico_charastatus_01"),
+                new("stat-icon", "power", "POWER", "utx_ico_charastatus_02"),
+                new("stat-icon", "guts", "GUTS", "utx_ico_charastatus_03"),
+                new("stat-icon", "wit", "WIT", "utx_ico_charastatus_04"),
+                new("stat-icon-white", "speed", "SPEED", "utx_ico_charastatus_w_00"),
+                new("stat-icon-white", "stamina", "STAMINA", "utx_ico_charastatus_w_01"),
+                new("stat-icon-white", "power", "POWER", "utx_ico_charastatus_w_02"),
+                new("stat-icon-white", "guts", "GUTS", "utx_ico_charastatus_w_03"),
+                new("stat-icon-white", "wit", "WIT", "utx_ico_charastatus_w_04"),
+
+                new("course-ground", "turf", "TURF", "utx_ico_course_00"),
+                new("course-ground", "dirt", "DIRT", "utx_ico_course_01"),
+
+                new("spark-main", "unique", "UNIQUE", "utx_ico_factor_unique_00"),
+                new("spark-aptitude", "turf", "TURF", "utx_ico_factor_aptitude_11"),
+                new("spark-aptitude", "dirt", "DIRT", "utx_ico_factor_aptitude_12"),
+                new("spark-aptitude", "front-runner", "FRONT RUNNER", "utx_ico_factor_aptitude_21"),
+                new("spark-aptitude", "pace-chaser", "PACE CHASER", "utx_ico_factor_aptitude_22"),
+                new("spark-aptitude", "late-surger", "LATE SURGER", "utx_ico_factor_aptitude_23"),
+                new("spark-aptitude", "end-closer", "END CLOSER", "utx_ico_factor_aptitude_24"),
+                new("spark-aptitude", "sprint", "SPRINT", "utx_ico_factor_aptitude_31"),
+                new("spark-aptitude", "mile", "MILE", "utx_ico_factor_aptitude_32"),
+                new("spark-aptitude", "medium", "MEDIUM", "utx_ico_factor_aptitude_33"),
+                new("spark-aptitude", "long", "LONG", "utx_ico_factor_aptitude_34"),
+                new("spark-status", "speed", "SPEED", "utx_ico_factor_status_01"),
+                new("spark-status", "stamina", "STAMINA", "utx_ico_factor_status_02"),
+                new("spark-status", "power", "POWER", "utx_ico_factor_status_03"),
+                new("spark-status", "guts", "GUTS", "utx_ico_factor_status_04"),
+                new("spark-status", "wit", "WIT", "utx_ico_factor_status_05"),
+                new("spark-rarity-blue", "1-star", "1 STAR", "utx_ico_factor_rarity_00"),
+                new("spark-rarity-blue", "2-star", "2 STAR", "utx_ico_factor_rarity_01"),
+                new("spark-rarity-blue", "3-star", "3 STAR", "utx_ico_factor_rarity_02"),
+                new("spark-rarity-pink", "1-star", "1 STAR", "utx_ico_factor_rarity_03"),
+                new("spark-rarity-pink", "2-star", "2 STAR", "utx_ico_factor_rarity_04"),
+                new("spark-rarity-pink", "3-star", "3 STAR", "utx_ico_factor_rarity_05"),
+                new("spark-rarity-unique", "1-star", "1 STAR", "utx_ico_factor_rarity_06"),
+                new("spark-rarity-unique", "2-star", "2 STAR", "utx_ico_factor_rarity_07"),
+                new("spark-rarity-unique", "3-star", "3 STAR", "utx_ico_factor_rarity_08"),
+
+                new("runstyle-icon", "front-runner", "FRONT RUNNER", "utx_ico_runstyle_00"),
+                new("runstyle-icon", "pace-chaser", "PACE CHASER", "utx_ico_runstyle_01"),
+                new("runstyle-icon", "late-surger", "LATE SURGER", "utx_ico_runstyle_02"),
+                new("runstyle-icon", "end-closer", "END CLOSER", "utx_ico_runstyle_03"),
+                new("runstyle-text", "front-runner", "FRONT RUNNER", "utx_txt_runstyle_00"),
+                new("runstyle-text", "pace-chaser", "PACE CHASER", "utx_txt_runstyle_01"),
+                new("runstyle-text", "late-surger", "LATE SURGER", "utx_txt_runstyle_02"),
+                new("runstyle-text", "end-closer", "END CLOSER", "utx_txt_runstyle_03"),
+
+                new("season", "spring", "SPRING", "utx_txt_season_00"),
+                new("season", "summer", "SUMMER", "utx_txt_season_01"),
+                new("season", "autumn", "AUTUMN", "utx_txt_season_02"),
+                new("season", "winter", "WINTER", "utx_txt_season_03"),
+
+                new("weather", "sunny", "SUNNY", "utx_ico_weather_00"),
+                new("weather", "cloudy", "CLOUDY", "utx_ico_weather_01"),
+                new("weather", "rainy", "RAINY", "utx_ico_weather_02"),
+                new("weather", "snowy", "SNOWY", "utx_ico_weather_03"),
+
+                new("favorite-icon", "grey-carrot", "GREY CARROT", "utx_btn_favorite_002_00"),
+                new("favorite-icon", "carrot", "CARROT", "utx_btn_favorite_002_01"),
+                new("favorite-icon", "rice-bowl", "RICE BOWL", "utx_btn_favorite_002_02"),
+                new("favorite-icon", "tea", "TEA", "utx_btn_favorite_002_03"),
+                new("favorite-icon", "choco-cake", "CHOCO CAKE", "utx_btn_favorite_002_04"),
+                new("favorite-icon", "strawberry-cake", "STRAWBERRY CAKE", "utx_btn_favorite_002_05"),
+                new("favorite-icon", "diamond", "DIAMOND", "utx_btn_favorite_002_06"),
+                new("favorite-icon", "spade", "SPADE", "utx_btn_favorite_002_07"),
+                new("favorite-icon", "heart", "HEART", "utx_btn_favorite_002_08"),
+                new("favorite-icon", "club", "CLUB", "utx_btn_favorite_002_09"),
+                new("favorite-icon", "sprint-shoe", "SPRINT SHOE", "utx_btn_favorite_002_10"),
+                new("favorite-icon", "mile-shoe", "MILE SHOE", "utx_btn_favorite_002_11"),
+                new("favorite-icon", "medium-shoe", "MEDIUM SHOE", "utx_btn_favorite_002_12"),
+                new("favorite-icon", "long-shoe", "LONG SHOE", "utx_btn_favorite_002_13"),
+                new("favorite-icon", "dirt-shoe", "DIRT SHOE", "utx_btn_favorite_002_14"),
+                new("favorite-icon", "handshake", "HANDSHAKE", "utx_btn_favorite_002_15"),
+
+                new("support-type", "speed", "SPEED", "utx_ico_obtain_00"),
+                new("support-type", "stamina", "STAMINA", "utx_ico_obtain_01"),
+                new("support-type", "power", "POWER", "utx_ico_obtain_02"),
+                new("support-type", "guts", "GUTS", "utx_ico_obtain_03"),
+                new("support-type", "wit", "WIT", "utx_ico_obtain_04"),
+                new("support-type", "pal", "PAL", "utx_ico_obtain_05"),
+                new("support-type", "group", "GROUP", "utx_ico_obtain_06"),
+                new("support-rarity", "r", "R", "utx_ico_rarity_00"),
+                new("support-rarity", "sr", "SR", "utx_ico_rarity_01"),
+                new("support-rarity", "ssr", "SSR", "utx_ico_rarity_02"),
+
+                new("race-grade-pill", "debut", "DEBUT", "utx_txt_grade_00"),
+                new("race-grade-pill", "maiden", "MAIDEN", "utx_txt_grade_01"),
+                new("race-grade-pill", "pre-op", "PRE-OP", "utx_txt_grade_06"),
+                new("race-grade-pill", "op", "OP", "utx_txt_grade_02"),
+                new("race-grade-pill", "g3", "G3", "utx_txt_grade_03"),
+                new("race-grade-pill", "g2", "G2", "utx_txt_grade_04"),
+                new("race-grade-pill", "g1", "G1", "utx_txt_grade_05"),
+                new("race-grade-pill", "ex", "EX", "utx_txt_grade_07"),
+                new("race-grade-ribbon", "debut", "DEBUT", "utx_txt_grade_ribbon_00"),
+                new("race-grade-ribbon", "maiden", "MAIDEN", "utx_txt_grade_ribbon_01"),
+                new("race-grade-ribbon", "pre-op", "PRE-OP", "utx_txt_grade_ribbon_06"),
+                new("race-grade-ribbon", "op", "OP", "utx_txt_grade_ribbon_02"),
+                new("race-grade-ribbon", "g3", "G3", "utx_txt_grade_ribbon_03"),
+                new("race-grade-ribbon", "g2", "G2", "utx_txt_grade_ribbon_04"),
+                new("race-grade-ribbon", "g1", "G1", "utx_txt_grade_ribbon_05"),
+                new("race-grade-ribbon", "ex", "EX", "utx_txt_grade_ribbon_07"),
+
+                new("generic-icon", "adjustment-plus", "ADJUSTMENT PLUS", "utx_btn_adjustment_00"),
+                new("generic-icon", "adjustment-minus", "ADJUSTMENT MINUS", "utx_btn_adjustment_01"),
+                new("generic-icon", "plus-circle", "PLUS CIRCLE", "utx_btn_plus_00"),
+                new("generic-icon", "close", "CLOSE", "utx_btn_announce_close_00"),
+                new("generic-icon", "arrow-down", "ARROW DOWN", "utx_btn_arrow_s_00"),
+                new("generic-icon", "arrow-up", "ARROW UP", "utx_btn_arrow_s_01"),
+                new("generic-icon", "arrow-right", "ARROW RIGHT", "utx_btn_arrow_side_03"),
+                new("generic-icon", "info-small", "INFO SMALL", "utx_btn_info_00"),
+                new("generic-icon", "info", "INFO", "utx_btn_info_01"),
+                new("generic-icon", "change", "CHANGE", "utx_btn_fillin_01"),
+                new("generic-icon", "pencil", "PENCIL", "utx_btn_fillin_00"),
+                new("generic-icon", "button-base-circle-green", "BUTTON BASE CIRCLE GREEN", "utx_btn_circle_m_02"),
+                new("generic-icon", "button-base-pill-white", "BUTTON BASE PILL WHITE", "utx_btn_circle_m_00_sl"),
+                new("generic-icon", "button-base-circle-green-small", "BUTTON BASE CIRCLE GREEN SMALL", "utx_btn_circle_s_01"),
+                new("generic-icon", "button-base-circle-white", "BUTTON BASE CIRCLE WHITE", "utx_btn_sort_00"),
+                new("generic-icon", "button-base-square-white", "BUTTON BASE SQUARE WHITE", "utx_btn_square_00_sl"),
+                new("generic-icon", "button-base-square-green", "BUTTON BASE SQUARE GREEN", "utx_btn_square_01"),
+                new("generic-icon", "button-base-rect-white", "BUTTON BASE RECT WHITE", "utx_btn_menu_01"),
+                new("generic-icon", "button-base-rect-green", "BUTTON BASE RECT GREEN", "utx_btn_menu_00"),
+                new("generic-icon", "expand-circle", "EXPAND CIRCLE", "utx_ico_ui_hidden_00"),
+                new("generic-icon", "collapse-circle", "COLLAPSE CIRCLE", "utx_ico_ui_hidden_01"),
+                new("generic-icon", "expand-square", "EXPAND SQUARE", "utx_btn_pinchout_00"),
+                new("generic-icon", "collapse-square", "COLLAPSE SQUARE", "utx_btn_pinchin_00"),
+                new("generic-icon", "crown", "CROWN", "utx_ico_itemlist_circle_00"),
+                new("generic-icon", "trophy", "TROPHY", "utx_ico_itemlist_dailyrace_00"),
+                new("generic-icon", "goddess-statue", "GODDESS STATUE", "utx_ico_itemlist_shop_01"),
+                new("generic-icon", "silver-cleat", "SILVER CLEAT", "utx_ico_itemlist_shop_03"),
+                new("generic-icon", "gold-cleat", "GOLD CLEAT", "utx_ico_itemlist_shop_04"),
+                new("generic-icon", "rainbow-cleat", "RAINBOW CLEAT", "utx_ico_itemlist_shop_02"),
+                new("generic-icon", "gold-crystal", "GOLD CRYSTAL", "utx_ico_itemlist_shop_06"),
+                new("generic-icon", "rainbow-crystal", "RAINBOW CRYSTAL", "utx_ico_itemlist_shop_05"),
+                new("generic-icon", "lock-white", "LOCK WHITE", "utx_ico_lock_01"),
+                new("generic-icon", "lock-gold", "LOCK GOLD", "utx_ico_lock_m_00"),
+                new("generic-icon", "lock-gold-small", "LOCK GOLD SMALL", "utx_ico_lock_00"),
+                new("generic-icon", "camera", "CAMERA", "utx_ico_photograph_00"),
+                new("generic-icon", "team", "TEAM", "utx_ico_progress_group_02"),
+                new("generic-icon", "rotate", "ROTATE", "utx_ico_rotation_00"),
+                new("generic-icon", "reload", "RELOAD", "utx_ico_reload_00"),
+                new("generic-icon", "settings", "SETTINGS", "utx_ico_setup_00"),
+                new("generic-icon", "banner-first", "BANNER FIRST", "utx_txt_ranking_01"),
+                new("generic-icon", "banner-second", "BANNER SECOND", "utx_txt_ranking_02"),
+                new("generic-icon", "banner-third", "BANNER THIRD", "utx_txt_ranking_03"),
+                new("generic-icon", "recommended", "RECOMMENDED", "utx_txt_recommended_00"),
+                new("generic-icon", "new", "NEW", "utx_txt_new_00"),
+                new("generic-icon", "medal", "MEDAL", "utx_ico_title_02"),
+                new("generic-icon", "costume", "COSTUME", "utx_ico_menu_31"),
+                new("generic-icon", "exit", "EXIT", "utx_ico_menu_25"),
+                new("generic-icon", "carat", "CARAT", "utx_ico_menu_23"),
+                new("generic-icon", "info-menu", "INFO", "utx_ico_menu_11"),
+                new("generic-icon", "details", "DETAILS", "utx_ico_menu_21"),
+                new("generic-icon", "support-card", "SUPPORT CARD", "utx_ico_item_s_23"),
+                new("generic-icon", "clover", "CLOVER", "utx_ico_itemlist_shop_00"),
+
+                new("toggle-icon", "empty-heart", "EMPTY HEART", "utx_ico_storymark_00"),
+                new("toggle-icon", "heart", "HEART", "utx_ico_storymark_01"),
+                new("toggle-icon", "empty-star", "EMPTY STAR", "utx_ico_strong_star_01"),
+                new("toggle-icon", "starred", "STARRED", "utx_ico_strong_star_00"),
+            ]),
+
+        new(
+            "ui-racecommon-icons",
+            "racecommon_tex",
+            [
+                new("race-popularity", "neutral", "NEUTRAL", "utx_ico_racepopularity_00"),
+                new("race-popularity", "most-favoured", "MOST FAVOURED", "utx_ico_racepopularity_01"),
+                new("race-popularity", "favoured", "FAVOURED", "utx_ico_racepopularity_02"),
+                new("race-popularity", "outsider", "OUTSIDER", "utx_ico_racepopularity_03"),
+                new("race-popularity", "least-favoured", "LEAST FAVOURED", "utx_ico_racepopularity_04"),
+                new("race-popularity", "longshot", "LONGSHOT", "utx_ico_racepopularity_05"),
+                new("paddock-popularity", "favourite", "FAVOURITE", "utx_frm_paddock_charaname_01"),
+                new("paddock-popularity", "second-favourite", "SECOND FAVOURITE", "utx_frm_paddock_charaname_00"),
+            ]),
+
+        new("ui-raceorder-icons", "raceorder_tex", GenerateIndexedIcons("race-order", "utx_txt_order_", 18)),
+        new("ui-raceorder-small-icons", "raceorder_tex", GenerateIndexedIcons("race-order-small", "utx_txt_order_s_", 18)),
+        new("ui-rank-icons", "rank_tex", GenerateIndexedIcons("rank", "utx_txt_rank_", 98)),
+        new("ui-statusrank-icons", "statusrank_tex", GenerateIndexedIcons("status-rank", "utx_ico_statusrank_", 98)),
+
+        new(
+            "ui-home-icons",
+            "home_tex",
+            [
+                new("home-icon", "trainee-umamusume", "TRAINEE UMAMUSUME", "utx_txt_title_00"),
+                new("home-icon", "support-cards", "SUPPORT CARDS", "utx_txt_title_01"),
+                new("home-icon", "veteran-umamusume", "VETERAN UMAMUSUME", "utx_txt_title_02"),
+                new("home-icon", "race-events", "RACE EVENTS", "utx_txt_title_03"),
+                new("home-icon", "exhibition", "EXHIBITION", "utx_txt_title_04"),
+                new("home-icon", "daily-program", "DAILY PROGRAM", "utx_txt_title_05"),
+                new("home-icon", "valentines-day", "VALENTINES DAY", "utx_txt_valentine_now_00"),
+                new("home-icon", "special-shop", "SPECIAL SHOP", "utx_txt_specialshop_now_00"),
+                new("home-icon", "bookmark-on", "BOOKMARK ON", "utx_ico_storymark_check_01"),
+                new("home-icon", "bookmark-off", "BOOKMARK OFF", "utx_ico_storymark_check_00"),
+                new("home-icon", "like-thumbsup", "LIKE", "utx_ico_nice_00"),
+                new("home-icon", "mail", "MAIL", "utx_ico_news_00"),
+                new("home-icon", "jukebox", "JUKEBOX", "utx_ico_jukebox_00"),
+                new("home-icon", "live-theater", "LIVE THEATER", "utx_ico_livetheater_00"),
+                new("home-icon", "present", "PRESENT", "utx_ico_present_00"),
+                new("home-icon", "valentine-gift", "VALENTINE GIFT", "utx_btn_valentine_now_00"),
+                new("home-icon", "shop", "SHOP", "utx_ico_shop_00"),
+                new("home-icon", "noticeboard", "NOTICEBOARD", "utx_ico_noticeboard_00"),
+                new("home-icon", "speech-bubble", "SPEECH BUBBLE", "utx_btn_homeevent_00"),
+                new("home-icon", "change-umamusume", "CHANGE UMAMUSUME", "utx_ico_umamusume_00"),
+            ]),
+
+        new(
+            "ui-note-icons",
+            "note_tex",
+            [
+                new("note-icon", "dress-change", "DRESS CHANGE", "utx_ico_dresschange_00"),
+                new("note-icon", "notepad", "NOTEPAD", "utx_ico_notemenu_00"),
+                new("note-icon", "notebook-opened", "NOTEBOOK OPENED", "utx_ico_notemenu_01"),
+                new("note-icon", "notebook-closed", "NOTEBOOK CLOSED", "utx_ico_notemenu_02"),
+                new("note-icon", "video-camera", "VIDEO CAMERA", "utx_ico_notemenu_03"),
+                new("note-icon", "video-folder", "VIDEO FOLDER", "utx_ico_notemenu_04"),
+                new("note-icon", "audio-mic", "AUDIO MIC", "utx_ico_notemenu_05"),
+                new("note-icon", "video-track", "VIDEO TRACK", "utx_ico_video_00"),
+            ]),
+
+        new(
+            "ui-teamstadium-icons",
+            "teamstadium_tex",
+            [
+                new("teamstadium-class", "class-one", "CLASS ONE", "utx_txt_teamrace_class_01"),
+                new("teamstadium-class", "class-two", "CLASS TWO", "utx_txt_teamrace_class_02"),
+                new("teamstadium-class", "class-three", "CLASS THREE", "utx_txt_teamrace_class_03"),
+                new("teamstadium-class", "class-four", "CLASS FOUR", "utx_txt_teamrace_class_04"),
+                new("teamstadium-class", "class-five", "CLASS FIVE", "utx_txt_teamrace_class_05"),
+                new("teamstadium-class", "class-six", "CLASS SIX", "utx_txt_teamrace_class_06"),
+                new("teamstadium-win-streak", "2", "2 WIN STREAK", "utx_txt_winbonus_now_00"),
+                new("teamstadium-win-streak", "3", "3 WIN STREAK", "utx_txt_winbonus_now_01"),
+                new("teamstadium-win-streak", "4", "4 WIN STREAK", "utx_txt_winbonus_now_02"),
+                new("teamstadium-streak-bonus", "2-bonus", "2 STREAK BONUS", "utx_txt_winbonus_00"),
+                new("teamstadium-streak-bonus", "3-bonus", "3 STREAK BONUS", "utx_txt_winbonus_01"),
+                new("teamstadium-streak-bonus", "4-bonus", "4 STREAK BONUS", "utx_txt_winbonus_02"),
+                new("teamstadium-streak-bonus", "5-bonus", "5 STREAK BONUS", "utx_txt_winbonus_03"),
+                new("teamstadium-icon", "ace", "ACE", "utx_txt_team_ace"),
+                new("teamstadium-icon", "rank-up", "RANK UP", "utx_txt_team_rankup"),
+                new("teamstadium-icon", "rank-down", "RANK DOWN", "utx_txt_team_rankdown"),
+                new("teamstadium-icon", "team-rating", "TEAM RATING", "utx_txt_teamrank_00"),
+                new("teamstadium-icon", "unranked", "UNRANKED", "utx_txt_teamscore_notrun"),
+                new("teamstadium-icon", "not-ranked", "NOT RANKED", "utx_txt_teamscore_outofranking"),
+                new("teamstadium-icon", "tallying", "TALLYING", "utx_txt_teamscore_aggregate"),
+                new("teamstadium-icon", "mvp", "MVP", "utx_txt_mvp_00"),
+                new("teamstadium-icon", "new-highscore", "NEW HIGHSCORE", "utx_txt_highscoreup_00"),
+                new("teamstadium-icon", "highscore", "HIGHSCORE", "utx_txt_highscore_00"),
+                new("teamstadium-icon", "view-race", "VIEW RACE", "utx_txt_race_00"),
+                new("teamstadium-icon", "race-again", "RACE AGAIN", "utx_txt_raceagain_00"),
+                new("teamstadium-icon", "see-results", "SEE RESULTS", "utx_txt_result_00"),
+                new("teamstadium-icon", "standby", "STANDBY", "utx_txt_result_s_status_00"),
+                new("teamstadium-icon", "win", "WIN", "utx_txt_result_s_win_00"),
+                new("teamstadium-icon", "lose", "LOSE", "utx_txt_result_s_lose_00"),
+                new("teamstadium-icon", "draw", "DRAW", "utx_txt_result_s_draw_00"),
+                new("teamstadium-icon", "in-promotion-range", "IN PROMOTION RANGE", "utx_txt_teamstadium_class_00"),
+                new("teamstadium-icon", "in-retention-range", "IN RETENTION RANGE", "utx_txt_teamstadium_class_01"),
+                new("teamstadium-icon", "in-demotion-range", "IN DEMOTION RANGE", "utx_txt_teamstadium_class_02"),
+                new("teamstadium-icon", "class-promotion", "CLASS PROMOTION", "utx_txt_teamrace_resultclass_00"),
+                new("teamstadium-icon", "class-retention", "CLASS RETENTION", "utx_txt_teamrace_resultclass_01"),
+                new("teamstadium-icon", "class-demotion", "CLASS DEMOTION", "utx_txt_teamrace_resultclass_02"),
+                new("teamstadium-icon", "red-gift", "RED GIFT", "utx_ico_present_box_00"),
+                new("teamstadium-icon", "gold-gift", "GOLD GIFT", "utx_ico_present_box_01"),
+                new("teamstadium-icon", "teamtrial-icon", "TEAMTRIAL ICON", "utx_btn_teamstadium_race_00"),
+            ]),
+    ];
+
+    private static IReadOnlyList<UiAtlasIconDefinition> GenerateIndexedIcons(string family, string prefix, int count)
+    {
+        return Enumerable.Range(0, count)
+            .Select(index => new UiAtlasIconDefinition(
+                family,
+                $"{family}-{index:00}",
+                $"{family.ToUpperInvariant()} {index:00}",
+                $"{prefix}{index:00}"))
+            .ToArray();
+    }
+}
+
+public sealed record AtlasUiCatalogDefinition(
+    string CatalogName,
+    string AtlasName,
+    IReadOnlyList<UiAtlasIconDefinition> Icons);
+
+public sealed record UiAtlasIconDefinition(
+    string Family,
+    string Key,
+    string Label,
+    string SpriteName);

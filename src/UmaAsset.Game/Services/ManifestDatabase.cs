@@ -11,6 +11,7 @@ public sealed class ManifestDatabase
     };
 
     private readonly string metaPath;
+    private readonly string stagedMetaPath;
     private string? selectedKey;
     private static bool sqliteInitialized;
 
@@ -18,6 +19,7 @@ public sealed class ManifestDatabase
     {
         UmaDir = umaDir;
         metaPath = Path.Combine(umaDir, "meta");
+        stagedMetaPath = GameFileStager.StageMetaFile(metaPath);
     }
 
     public string UmaDir { get; }
@@ -28,7 +30,7 @@ public sealed class ManifestDatabase
     {
         get
         {
-            using var stream = new FileStream(metaPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var stream = new FileStream(stagedMetaPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var reader = new BinaryReader(stream);
             return reader.ReadUInt32() != 0x694C5153;
         }
@@ -105,7 +107,7 @@ public sealed class ManifestDatabase
             sqliteInitialized = true;
         }
 
-        var connection = new SQLiteConnection(metaPath, SQLiteOpenFlags.ReadWrite);
+        var connection = new SQLiteConnection(stagedMetaPath, SQLiteOpenFlags.ReadOnly);
         if (!IsEncrypted)
         {
             return connection;

@@ -530,75 +530,66 @@ public sealed class CommandDispatcher
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
         var manifest = new ManifestDatabase(install.Path);
-        var exporter = new TextureBundleExporter(manifest);
-
-        var families = GatherValues(options, "--family");
-        if (families.Count == 0)
-        {
-            return Fail($"extract-ui-icons expects at least one --family value. Supported: {string.Join(", ", UiIconResourceNames.SupportedFamilies)}");
-        }
-
         var output = GetSingle(options, "--output")
             ?? Path.Combine(Environment.CurrentDirectory, "out", "ui-icons");
-        var requestedFamilies = families
-            .Where(static family => !string.IsNullOrWhiteSpace(family))
-            .Select(static family => family.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        var resourceNames = UiIconResourceNames.ExpandFamilies(requestedFamilies);
-        if (resourceNames.Count == 0)
+        var requestedCatalogs = GatherValues(options, "--catalog");
+        var definitions = AtlasUiCatalogDefinitions.GetDefinitions(requestedCatalogs);
+        if (definitions.Count == 0)
         {
-            return Fail($"No supported families were requested. Supported: {string.Join(", ", UiIconResourceNames.SupportedFamilies)}");
+            return Fail($"No supported catalogs were requested. Supported: {string.Join(", ", AtlasUiCatalogDefinitions.SupportedCatalogs)}");
         }
 
-        var entries = manifest.FindMany(resourceNames).ToArray();
-        var missing = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
-        var catalogEntries = new List<UiIconCatalogEntry>();
+        var region = GetRegionSlug(options, install);
+        var iconsRoot = Path.Combine(output, region, "icons");
+        var catalogsRoot = Path.Combine(output, region, "catalogs");
+        Directory.CreateDirectory(iconsRoot);
+        Directory.CreateDirectory(catalogsRoot);
 
-        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        var spriteExporter = new SpriteBundleExporter(manifest);
+        var catalogWriter = new SplitUiIconCatalogWriter();
+        var totalExports = 0;
+
+        foreach (var definition in definitions)
         {
-            var results = exporter.ExportTextures(entry, output, [entry.BaseName]);
+            var entry = manifest.FindByName(definition.AtlasName);
+            if (entry is null)
+            {
+                Console.WriteLine($"{definition.AtlasName} -> atlas entry not found");
+                continue;
+            }
+
+            var spriteMap = definition.Icons.ToDictionary(
+                static icon => icon.SpriteName,
+                static icon => icon.SpriteName,
+                StringComparer.OrdinalIgnoreCase);
+            var results = spriteExporter.ExportSprites(entry, iconsRoot, spriteMap);
+            if (results.Count == 0)
+            {
+                Console.WriteLine($"{definition.AtlasName} -> no matching Sprite assets");
+                continue;
+            }
+
+            totalExports += results.Count;
+            var catalogEntries = new List<UiIconCatalogEntry>(results.Count);
             foreach (var result in results)
             {
-                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
+                Console.WriteLine($"{definition.AtlasName}:{result.SpriteName} -> {result.OutputPath}");
 
-                var family = requestedFamilies.FirstOrDefault(family =>
-                    UiIconResourceNames.GetFriendlyNames(family).ContainsKey(entry.BaseName));
-                if (family is null)
-                {
-                    continue;
-                }
-
-                var label = UiIconResourceNames.GetFriendlyNames(family).TryGetValue(entry.BaseName, out var friendlyName)
-                    ? friendlyName
-                    : entry.BaseName;
-                var relativePath = Path.GetRelativePath(output, result.OutputPath).Replace('\\', '/');
+                var iconDefinition = definition.Icons.First(icon => string.Equals(icon.SpriteName, result.SpriteName, StringComparison.OrdinalIgnoreCase));
+                var relativePath = Path.GetRelativePath(Path.Combine(output, region), result.OutputPath).Replace('\\', '/');
                 catalogEntries.Add(new UiIconCatalogEntry(
-                    family,
-                    entry.BaseName,
-                    label,
-                    entry.Name,
+                    iconDefinition.Family,
+                    iconDefinition.Key,
+                    iconDefinition.Label,
+                    result.SpriteName,
                     relativePath));
             }
-        }
 
-        if (catalogEntries.Count > 0)
-        {
-            var catalogPath = new UiIconCatalogWriter().Write(output, catalogEntries);
+            var catalogPath = catalogWriter.Write(catalogsRoot, definition.CatalogName, catalogEntries);
             Console.WriteLine($"catalog -> {catalogPath}");
         }
 
-        if (missing.Length > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("Missing UI icon resources:");
-            foreach (var resource in missing)
-            {
-                Console.WriteLine($"  {resource}");
-            }
-        }
-
-        return entries.Length == 0 ? 1 : 0;
+        return totalExports == 0 ? 1 : 0;
     }
 
     private static int RunExportRankBadges(string[] args)
@@ -720,8 +711,8 @@ public sealed class CommandDispatcher
         Console.WriteLine("  extract-skill-icons [--skill-ids <id> ...] [--icon-ids <id> ...] [--output <dir>] [--uma-dir <path>]");
         Console.WriteLine("    Export local skill icon PNGs. Skill ids are resolved through master.mdb to icon ids.");
         Console.WriteLine();
-        Console.WriteLine("  extract-ui-icons --family <motivation|charastatus> [--family ...] [--output <dir>] [--uma-dir <path>]");
-        Console.WriteLine("    Export selected direct UI icon families from local assets.");
+        Console.WriteLine("  extract-ui-icons [--catalog <name> ...] [--output <dir>] [--uma-dir <path>] [--region <global|japan>]");
+        Console.WriteLine("    Export curated atlas-backed UI icon catalogs and flattened regional PNG assets.");
         Console.WriteLine();
         Console.WriteLine("  export-rank-badges [--output <dir>] [--atlas-name <name>] [--uma-dir <path>]");
         Console.WriteLine("    Export cropped rank badge PNGs from the local rank atlas.");
@@ -742,8 +733,25 @@ public sealed class CommandDispatcher
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-support-icons --ids 30001 --output .\out\support-icons");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-skill-icons --skill-ids 20011 20145 --output .\out\skill-icons");
-        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --family motivation --output .\out\ui-icons");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-icons --output .\out\ui-icons");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-icons --uma-dir C:\temp\uma-copy --region japan");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- export-rank-badges --output .\out\rank-badges");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json");
+    }
+
+    private static string GetRegionSlug(Dictionary<string, List<string>> options, UmaInstall install)
+    {
+        var explicitRegion = GetSingle(options, "--region");
+        if (string.Equals(explicitRegion, "global", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(explicitRegion, "japan", StringComparison.OrdinalIgnoreCase))
+        {
+            return explicitRegion!.ToLowerInvariant();
+        }
+
+        return install.Name.Contains("Japan", StringComparison.OrdinalIgnoreCase)
+               || install.Path.Contains("_Jpn", StringComparison.OrdinalIgnoreCase)
+               || install.Path.Contains("PrettyDerby_Jpn", StringComparison.OrdinalIgnoreCase)
+            ? "japan"
+            : "global";
     }
 }
