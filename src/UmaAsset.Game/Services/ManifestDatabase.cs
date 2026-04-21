@@ -94,6 +94,31 @@ public sealed class ManifestDatabase
             .ToArray();
     }
 
+    public IReadOnlyList<ManifestEntry> SearchByPrefix(IEnumerable<string> prefixes, int limit = 100000)
+    {
+        var wanted = prefixes
+            .Where(static prefix => !string.IsNullOrWhiteSpace(prefix))
+            .Select(static prefix => prefix.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (wanted.Length == 0)
+        {
+            return [];
+        }
+
+        using var connection = OpenConnection();
+        var entries = connection.Table<ManifestEntry>().ToList();
+
+        return entries
+            .Where(entry => wanted.Any(prefix =>
+                entry.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                || entry.BaseName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(1, limit))
+            .ToArray();
+    }
+
     public string GetDataFilePath(ManifestEntry entry)
     {
         return Path.Combine(DataDir, entry.HashName[..2], entry.HashName);

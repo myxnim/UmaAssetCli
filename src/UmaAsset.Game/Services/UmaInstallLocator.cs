@@ -59,7 +59,7 @@ public static class UmaInstallLocator
         if (detected.Count == 0)
         {
             throw new DirectoryNotFoundException(
-                "No Umamusume install was detected. Pass --uma-dir to point at the game's Persistent directory.");
+                "No Umamusume install was detected. Pass --uma-dir to point at the game's data directory.");
         }
 
         return detected[0];

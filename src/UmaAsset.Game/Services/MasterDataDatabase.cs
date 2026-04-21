@@ -33,6 +33,22 @@ public sealed class MasterDataDatabase
             .ToDictionary(static row => row.Id, static row => row.IconId);
     }
 
+    public IReadOnlyList<MasterSkillRecord> GetAllSkills()
+    {
+        using var connection = OpenConnection();
+        return connection.Query<MasterSkillRecord>(
+            """
+            SELECT sd.id AS SkillId,
+                   sd.icon_id AS IconId,
+                   td.text AS NameJa
+            FROM skill_data sd
+            LEFT JOIN text_data td
+              ON td.category = 47
+             AND td."index" = sd.id
+            ORDER BY sd.id
+            """);
+    }
+
     private SQLiteConnection OpenConnection()
     {
         if (!sqliteInitialized)
@@ -52,4 +68,13 @@ public sealed class MasterDataDatabase
         [Column("icon_id")]
         public int IconId { get; set; }
     }
+}
+
+public sealed class MasterSkillRecord
+{
+    public int SkillId { get; set; }
+
+    public int IconId { get; set; }
+
+    public string? NameJa { get; set; }
 }

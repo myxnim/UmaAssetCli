@@ -21,7 +21,8 @@ public sealed class SpriteBundleExporter
     public IReadOnlyList<SpriteExportResult> ExportSprites(
         ManifestEntry entry,
         string outputRoot,
-        IReadOnlyDictionary<string, string>? spriteNameToOutputName = null)
+        IReadOnlyDictionary<string, string>? spriteNameToOutputName = null,
+        Action<string>? onSpriteExported = null)
     {
         var results = new List<SpriteExportResult>();
         Directory.CreateDirectory(outputRoot);
@@ -104,6 +105,7 @@ public sealed class SpriteBundleExporter
                 spriteImage.SaveAsPng(outputPath);
 
                 results.Add(new SpriteExportResult(spriteName, outputName, outputPath));
+                onSpriteExported?.Invoke(spriteName);
             }
         }
 

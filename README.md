@@ -21,6 +21,7 @@ Current scope:
 - read encrypted `meta`
 - stage bundle copies before parsing them
 - export character, support, skill, and curated UI icons
+- export raw atlas sprite bundles with generated browse indexes
 - generate split JSON catalogs for atlas-backed UI icons
 - optionally sync GameTora metadata catalogs
 
@@ -56,6 +57,13 @@ For `--uma-dir` paths, region is inferred from the install name/path when possib
 
 That matters for region-scoped output paths such as `global/...` and `japan/...`.
 
+If you want to run both installs in one pass, use:
+
+- `--global-dir <path>`
+- `--japan-dir <path>`
+
+That keeps the regions explicit and avoids pairing mistakes with repeated `--uma-dir` values.
+
 ## Examples
 
 ```powershell
@@ -67,14 +75,19 @@ dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801
 dotnet run --project .\src\UmaAsset.Cli -- extract-skill-icons --skill-ids 100011 10321 --output .\out\skill-icons
 dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-icons --catalog ui-home-icons --output .\out\ui
 dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-icons --uma-dir C:\temp\uma-jp-copy --region japan --output .\out\ui
+dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-icons --catalog ui-rank-icons --global-dir "%USERPROFILE%\AppData\LocalLow\Cygames\umamusume" --japan-dir "D:\steamapps\common\UmamusumePrettyDerby_Jpn\UmamusumePrettyDerby_Jpn_Data\Persistent" --output .\out\ui
+dotnet run --project .\src\UmaAsset.Cli -- extract-raw-atlases --global-dir "%USERPROFILE%\AppData\LocalLow\Cygames\umamusume" --japan-dir "D:\steamapps\common\UmamusumePrettyDerby_Jpn\UmamusumePrettyDerby_Jpn_Data\Persistent" --output .\out\raw-atlases
 ```
 
 ## Notes
 
 - `--uma-dir` should point at the game data directory that contains `dat/`, `meta`, and `master/master.mdb`.
+- `extract-ui-icons` can process one copied install with `--uma-dir` or both regions together with `--global-dir` and `--japan-dir`.
+- `extract-raw-atlases` can process one copied install with `--uma-dir` or both regions together with `--global-dir` and `--japan-dir`.
 - `sync-gametora` is metadata-oriented and does not download remote images.
 - `extract-ui-icons` exports flattened PNGs under `<output>/<region>/icons/` and split catalogs under `<output>/<region>/catalogs/`.
-- Current curated UI catalogs include common, racecommon, raceorder, rank, statusrank, home, note, and teamstadium sets.
+- `extract-raw-atlases` exports atlas sprites under `<output>/<region>/raw-atlases/<atlas>/` and writes `<output>/<region>/catalogs/raw-atlas-index.json`.
+- Current curated UI catalogs include common, racecommon, raceorder, rank, statusrank, circle, home, note, and teamstadium sets.
 - Package versions are managed in `Directory.Packages.props`.
 - Shared C# settings live in `Directory.Build.props`.
 

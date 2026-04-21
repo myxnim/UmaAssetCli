@@ -14,6 +14,8 @@ public static class SupportIconResourceNames
             }
 
             resourceNames.Add($"support_thumb_{supportId:d5}");
+            resourceNames.Add($"support_card_s_{supportId:d5}");
+            resourceNames.Add($"tex_support_card_{supportId:d5}");
         }
 
         return resourceNames

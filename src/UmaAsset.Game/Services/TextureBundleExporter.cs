@@ -103,19 +103,16 @@ public sealed class TextureBundleExporter
                 outputRoot,
                 "character",
                 charaIconInfo.CharacterId,
-                "icons",
                 charaIconInfo.Family);
         }
 
-        var supportId = SupportIconPathParser.ParseSupportId(textureName);
-        if (supportId is not null)
+        var supportInfo = SupportIconPathParser.Parse(textureName);
+        if (supportInfo is not null)
         {
             return Path.Combine(
                 outputRoot,
                 "support",
-                supportId,
-                "icons",
-                "thumb");
+                supportInfo.SupportId);
         }
 
         var skillIconId = SkillIconPathParser.ParseIconId(textureName);
