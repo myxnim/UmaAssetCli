@@ -116,6 +116,33 @@ public sealed class TextureBundleExporter
                 charaIconInfo.Family);
         }
 
+        var supportId = SupportIconPathParser.ParseSupportId(textureName);
+        if (supportId is not null)
+        {
+            return Path.Combine(
+                outputRoot,
+                "support",
+                supportId,
+                "icons",
+                "thumb");
+        }
+
+        var skillIconId = SkillIconPathParser.ParseIconId(textureName);
+        if (skillIconId is not null)
+        {
+            return Path.Combine(outputRoot, "skill-icons");
+        }
+
+        if (textureName.StartsWith("utx_ico_motivation_l_", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.Combine(outputRoot, "ui", "motivation");
+        }
+
+        if (textureName.StartsWith("utx_ico_charastatus_l_", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.Combine(outputRoot, "ui", "charastatus");
+        }
+
         var safeAssetsFileName = SanitizeFileName(Path.GetFileNameWithoutExtension(assetsFileName));
         return Path.Combine(outputRoot, SanitizePath(entry.Manifest), safeAssetsFileName);
     }

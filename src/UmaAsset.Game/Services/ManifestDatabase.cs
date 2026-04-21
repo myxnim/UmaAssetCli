@@ -67,6 +67,31 @@ public sealed class ManifestDatabase
             .ToArray();
     }
 
+    public IReadOnlyList<ManifestEntry> SearchBySubstring(IEnumerable<string> patterns, int limit = 200)
+    {
+        var wanted = patterns
+            .Where(static pattern => !string.IsNullOrWhiteSpace(pattern))
+            .Select(static pattern => pattern.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (wanted.Length == 0)
+        {
+            return [];
+        }
+
+        using var connection = OpenConnection();
+        var entries = connection.Table<ManifestEntry>().ToList();
+
+        return entries
+            .Where(entry => wanted.Any(pattern =>
+                entry.Name.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+                || entry.BaseName.Contains(pattern, StringComparison.OrdinalIgnoreCase)))
+            .OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Max(1, limit))
+            .ToArray();
+    }
+
     public string GetDataFilePath(ManifestEntry entry)
     {
         return Path.Combine(DataDir, entry.HashName[..2], entry.HashName);

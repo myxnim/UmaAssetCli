@@ -19,10 +19,17 @@ public sealed class CommandDispatcher
                 "detect" => RunDetect(),
                 "sync-gametora" => RunSyncGameTora(args[1..]),
                 "lookup" => RunLookup(args[1..]),
+                "search" => RunSearch(args[1..]),
+                "inspect-bundle" => RunInspectBundle(args[1..]),
+                "dump-asset" => RunDumpAsset(args[1..]),
                 "stage" => RunStage(args[1..], treatIdsAsCharaIcons: false),
                 "stage-chara-icons" => RunStage(args[1..], treatIdsAsCharaIcons: true),
                 "extract-textures" => RunExtractTextures(args[1..], treatIdsAsCharaIcons: false),
                 "extract-chara-icons" => RunExtractTextures(args[1..], treatIdsAsCharaIcons: true),
+                "extract-support-icons" => RunExtractSupportIcons(args[1..]),
+                "extract-skill-icons" => RunExtractSkillIcons(args[1..]),
+                "extract-ui-icons" => RunExtractUiIcons(args[1..]),
+                "export-rank-badges" => RunExportRankBadges(args[1..]),
                 "generate-manifest" => RunGenerateManifest(args[1..]),
                 _ => Fail($"Unknown command '{args[0]}'."),
             });
@@ -116,6 +123,108 @@ public sealed class CommandDispatcher
             Console.WriteLine($"  Encrypted: {(entry.EncryptionKey != 0 ? "yes" : "no")}");
         }
 
+        return 0;
+    }
+
+    private static int RunSearch(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+
+        var patterns = GatherValues(options, "--contains");
+        if (patterns.Count == 0)
+        {
+            return Fail("search expects at least one --contains value.");
+        }
+
+        var limit = ParseInt(GetSingle(options, "--limit"), fallback: 200);
+        var entries = manifest.SearchBySubstring(patterns, limit);
+        if (entries.Count == 0)
+        {
+            Console.WriteLine("No manifest entries matched.");
+            return 1;
+        }
+
+        if (options.ContainsKey("--json"))
+        {
+            Console.WriteLine(JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+
+        foreach (var entry in entries)
+        {
+            Console.WriteLine(entry.Name);
+        }
+
+        return 0;
+    }
+
+    private static int RunInspectBundle(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var names = GatherValues(options, "--name");
+        names.AddRange(GatherValues(options, "--base-name"));
+        if (names.Count == 0)
+        {
+            return Fail("inspect-bundle expects at least one --name or --base-name value.");
+        }
+
+        var entries = manifest.FindMany(names).ToArray();
+        if (entries.Length == 0)
+        {
+            Console.WriteLine("No manifest entries matched.");
+            return 1;
+        }
+
+        var inspector = new BundleAssetInspector(manifest);
+        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var assets = inspector.Inspect(entry);
+            Console.WriteLine($"[{entry.Name}]");
+
+            foreach (var asset in assets.OrderBy(static asset => asset.AssetsFileName, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(static asset => asset.TypeName, StringComparer.OrdinalIgnoreCase)
+                         .ThenBy(static asset => asset.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"{asset.AssetsFileName} | {asset.TypeName} | {asset.Name} | {asset.PathId}");
+            }
+
+            Console.WriteLine();
+        }
+
+        return 0;
+    }
+
+    private static int RunDumpAsset(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var names = GatherValues(options, "--name");
+        names.AddRange(GatherValues(options, "--base-name"));
+        if (names.Count == 0)
+        {
+            return Fail("dump-asset expects at least one --name or --base-name value.");
+        }
+
+        var assetName = GetSingle(options, "--asset-name");
+        if (string.IsNullOrWhiteSpace(assetName))
+        {
+            return Fail("dump-asset expects --asset-name <name>.");
+        }
+
+        var entry = manifest.FindMany(names).FirstOrDefault();
+        if (entry is null)
+        {
+            Console.WriteLine("No manifest entries matched.");
+            return 1;
+        }
+
+        var dump = new BundleAssetFieldDumper(manifest).Dump(entry, assetName);
+        Console.WriteLine(dump);
         return 0;
     }
 
@@ -251,6 +360,207 @@ public sealed class CommandDispatcher
         return 0;
     }
 
+    private static int RunExtractSupportIcons(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var exporter = new TextureBundleExporter(manifest);
+
+        var ids = GatherValues(options, "--ids");
+        if (ids.Count == 0)
+        {
+            return Fail("extract-support-icons expects at least one value after --ids.");
+        }
+
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "support-icons");
+        var resourceNames = SupportIconResourceNames.FromIds(ids);
+        var entries = manifest.FindMany(resourceNames).ToArray();
+        var missing = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
+
+        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var results = exporter.ExportTextures(entry, output, [entry.BaseName]);
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
+            }
+        }
+
+        if (missing.Length > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Missing entries:");
+            foreach (var item in missing)
+            {
+                Console.WriteLine($"  {item}");
+            }
+        }
+
+        return entries.Length == 0 ? 1 : 0;
+    }
+
+    private static int RunExtractSkillIcons(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var master = new MasterDataDatabase(install.Path);
+        var exporter = new TextureBundleExporter(manifest);
+
+        var skillIds = GatherValues(options, "--skill-ids");
+        var iconIds = GatherValues(options, "--icon-ids");
+        if (skillIds.Count == 0 && iconIds.Count == 0)
+        {
+            return Fail("extract-skill-icons expects --skill-ids and/or --icon-ids.");
+        }
+
+        var requestedSkillIds = skillIds
+            .Select(static id => int.TryParse(id, out var parsed) ? parsed : throw new ArgumentException($"Invalid skill id '{id}'."))
+            .ToArray();
+        var requestedIconIds = iconIds
+            .Select(static id => int.TryParse(id, out var parsed) ? parsed : throw new ArgumentException($"Invalid icon id '{id}'."))
+            .ToHashSet();
+
+        var resolvedSkillIconIds = master.GetSkillIconIds(requestedSkillIds);
+        foreach (var iconId in resolvedSkillIconIds.Values)
+        {
+            requestedIconIds.Add(iconId);
+        }
+
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "skill-icons");
+        var resourceNames = requestedIconIds
+            .OrderBy(static id => id)
+            .Select(static id => $"utx_ico_skill_{id}")
+            .ToArray();
+        var entries = manifest.FindMany(resourceNames).ToArray();
+        var missingSkillIds = requestedSkillIds.Where(id => !resolvedSkillIconIds.ContainsKey(id)).ToArray();
+        var missingResources = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
+
+        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var results = exporter.ExportTextures(entry, output, [entry.BaseName]);
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
+            }
+        }
+
+        if (missingSkillIds.Length > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Unknown skill ids:");
+            foreach (var skillId in missingSkillIds)
+            {
+                Console.WriteLine($"  {skillId}");
+            }
+        }
+
+        if (missingResources.Length > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Missing icon resources:");
+            foreach (var resource in missingResources)
+            {
+                Console.WriteLine($"  {resource}");
+            }
+        }
+
+        return entries.Length == 0 ? 1 : 0;
+    }
+
+    private static int RunExtractUiIcons(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var exporter = new TextureBundleExporter(manifest);
+
+        var families = GatherValues(options, "--family");
+        if (families.Count == 0)
+        {
+            return Fail($"extract-ui-icons expects at least one --family value. Supported: {string.Join(", ", UiIconResourceNames.SupportedFamilies)}");
+        }
+
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "ui-icons");
+        var requestedFamilies = families
+            .Where(static family => !string.IsNullOrWhiteSpace(family))
+            .Select(static family => family.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var resourceNames = UiIconResourceNames.ExpandFamilies(requestedFamilies);
+        if (resourceNames.Count == 0)
+        {
+            return Fail($"No supported families were requested. Supported: {string.Join(", ", UiIconResourceNames.SupportedFamilies)}");
+        }
+
+        var entries = manifest.FindMany(resourceNames).ToArray();
+        var missing = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
+        var catalogEntries = new List<UiIconCatalogEntry>();
+
+        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var results = exporter.ExportTextures(entry, output, [entry.BaseName]);
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
+
+                var family = requestedFamilies.FirstOrDefault(family =>
+                    UiIconResourceNames.GetFriendlyNames(family).ContainsKey(entry.BaseName));
+                if (family is null)
+                {
+                    continue;
+                }
+
+                var label = UiIconResourceNames.GetFriendlyNames(family).TryGetValue(entry.BaseName, out var friendlyName)
+                    ? friendlyName
+                    : entry.BaseName;
+                var relativePath = Path.GetRelativePath(output, result.OutputPath).Replace('\\', '/');
+                catalogEntries.Add(new UiIconCatalogEntry(
+                    family,
+                    entry.BaseName,
+                    label,
+                    entry.Name,
+                    relativePath));
+            }
+        }
+
+        if (catalogEntries.Count > 0)
+        {
+            var catalogPath = new UiIconCatalogWriter().Write(output, catalogEntries);
+            Console.WriteLine($"catalog -> {catalogPath}");
+        }
+
+        if (missing.Length > 0)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Missing UI icon resources:");
+            foreach (var resource in missing)
+            {
+                Console.WriteLine($"  {resource}");
+            }
+        }
+
+        return entries.Length == 0 ? 1 : 0;
+    }
+
+    private static int RunExportRankBadges(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "rank-badges");
+        var atlasName = GetSingle(options, "--atlas-name") ?? "rank_tex";
+
+        var written = new RankBadgeExporter(manifest).Export(output, atlasName);
+        Console.WriteLine(written);
+        return 0;
+    }
+
     private static Dictionary<string, List<string>> ParseOptions(string[] args)
     {
         var options = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -323,6 +633,15 @@ public sealed class CommandDispatcher
         Console.WriteLine("  lookup --name <resource> [--name <resource> ...] [--uma-dir <path>] [--json]");
         Console.WriteLine("    Resolve manifest entries by full resource name or basename.");
         Console.WriteLine();
+        Console.WriteLine("  search --contains <text> [--contains <text> ...] [--limit <n>] [--uma-dir <path>] [--json]");
+        Console.WriteLine("    Search manifest entries by case-insensitive substring.");
+        Console.WriteLine();
+        Console.WriteLine("  inspect-bundle --name <resource> [--name <resource> ...] [--uma-dir <path>]");
+        Console.WriteLine("    List named assets inside matching bundle files.");
+        Console.WriteLine();
+        Console.WriteLine("  dump-asset --name <resource> --asset-name <name> [--uma-dir <path>]");
+        Console.WriteLine("    Dump the field tree for a named asset inside a bundle.");
+        Console.WriteLine();
         Console.WriteLine("  stage --name <resource> [--name <resource> ...] [--output <dir>] [--decrypt] [--flatten] [--uma-dir <path>]");
         Console.WriteLine("    Copy matching bundle blobs into an output folder. Use --decrypt to write a decrypted bundle when required.");
         Console.WriteLine();
@@ -338,6 +657,18 @@ public sealed class CommandDispatcher
         Console.WriteLine("    Resolve character icon bundle names from IDs and export Texture2D PNGs.");
         Console.WriteLine("    Repeat --family with chr, trained, round, plus to include multiple icon families.");
         Console.WriteLine();
+        Console.WriteLine("  extract-support-icons --ids <id> [<id> ...] [--output <dir>] [--uma-dir <path>]");
+        Console.WriteLine("    Export support card thumbnail PNGs from local assets.");
+        Console.WriteLine();
+        Console.WriteLine("  extract-skill-icons [--skill-ids <id> ...] [--icon-ids <id> ...] [--output <dir>] [--uma-dir <path>]");
+        Console.WriteLine("    Export local skill icon PNGs. Skill ids are resolved through master.mdb to icon ids.");
+        Console.WriteLine();
+        Console.WriteLine("  extract-ui-icons --family <motivation|charastatus> [--family ...] [--output <dir>] [--uma-dir <path>]");
+        Console.WriteLine("    Export selected direct UI icon families from local assets.");
+        Console.WriteLine();
+        Console.WriteLine("  export-rank-badges [--output <dir>] [--atlas-name <name>] [--uma-dir <path>]");
+        Console.WriteLine("    Export cropped rank badge PNGs from the local rank atlas.");
+        Console.WriteLine();
         Console.WriteLine("  generate-manifest [--input <dir>] [--output <file>]");
         Console.WriteLine("    Scan organized extracted assets and write a JSON manifest keyed by character id.");
         Console.WriteLine();
@@ -345,9 +676,16 @@ public sealed class CommandDispatcher
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- detect");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- sync-gametora --output .\out\gametora --include-supports");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- lookup --name chr_icon_1058_105801_02 --json");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- search --contains strategy --contains motivation --limit 50");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- inspect-bundle --name pf_fl_race_run_style_setting00");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- dump-asset --name rank_tex --asset-name utx_txt_rank_00");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- stage-chara-icons --ids 1058 105801 --decrypt --output .\out\icons");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --output .\out\png");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-support-icons --ids 30001 --output .\out\support-icons");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-skill-icons --skill-ids 20011 20145 --output .\out\skill-icons");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --family motivation --output .\out\ui-icons");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- export-rank-badges --output .\out\rank-badges");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json");
     }
 }

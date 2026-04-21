@@ -1,0 +1,55 @@
+using SQLite;
+
+namespace UmaAsset.Game.Services;
+
+public sealed class MasterDataDatabase
+{
+    private static bool sqliteInitialized;
+    private readonly string masterPath;
+
+    public MasterDataDatabase(string umaDir)
+    {
+        masterPath = Path.Combine(umaDir, "master", "master.mdb");
+    }
+
+    public IReadOnlyDictionary<int, int> GetSkillIconIds(IEnumerable<int> skillIds)
+    {
+        var ids = skillIds
+            .Distinct()
+            .OrderBy(static id => id)
+            .ToArray();
+
+        if (ids.Length == 0)
+        {
+            return new Dictionary<int, int>();
+        }
+
+        using var connection = OpenConnection();
+        var parameterNames = ids.Select(static (_, index) => $"?{index + 1}").ToArray();
+        var command = $"SELECT id, icon_id FROM skill_data WHERE id IN ({string.Join(", ", parameterNames)})";
+        var parameters = ids.Cast<object>().ToArray();
+
+        return connection.Query<SkillIconRow>(command, parameters)
+            .ToDictionary(static row => row.Id, static row => row.IconId);
+    }
+
+    private SQLiteConnection OpenConnection()
+    {
+        if (!sqliteInitialized)
+        {
+            SQLitePCL.Batteries_V2.Init();
+            sqliteInitialized = true;
+        }
+
+        return new SQLiteConnection(masterPath, SQLiteOpenFlags.ReadOnly);
+    }
+
+    private sealed class SkillIconRow
+    {
+        [Column("id")]
+        public int Id { get; set; }
+
+        [Column("icon_id")]
+        public int IconId { get; set; }
+    }
+}
