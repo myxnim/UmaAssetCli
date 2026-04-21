@@ -25,6 +25,7 @@ public sealed class CommandDispatcher
                 "stage" => RunStage(args[1..], treatIdsAsCharaIcons: false),
                 "stage-chara-icons" => RunStage(args[1..], treatIdsAsCharaIcons: true),
                 "extract-textures" => RunExtractTextures(args[1..], treatIdsAsCharaIcons: false),
+                "extract-sprites" => RunExtractSprites(args[1..]),
                 "extract-chara-icons" => RunExtractTextures(args[1..], treatIdsAsCharaIcons: true),
                 "extract-support-icons" => RunExtractSupportIcons(args[1..]),
                 "extract-skill-icons" => RunExtractSkillIcons(args[1..]),
@@ -347,6 +348,59 @@ public sealed class CommandDispatcher
         return 0;
     }
 
+    private static int RunExtractSprites(string[] args)
+    {
+        var options = ParseOptions(args);
+        var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
+        var manifest = new ManifestDatabase(install.Path);
+        var exporter = new SpriteBundleExporter(manifest);
+
+        var output = GetSingle(options, "--output")
+            ?? Path.Combine(Environment.CurrentDirectory, "out", "sprites");
+        var spriteNames = GatherValues(options, "--sprite-name");
+        var requestedNames = GatherValues(options, "--name");
+        requestedNames.AddRange(GatherValues(options, "--base-name"));
+
+        if (requestedNames.Count == 0)
+        {
+            return Fail("extract-sprites expects at least one --name or --base-name value.");
+        }
+
+        var entries = manifest.FindMany(requestedNames).ToArray();
+        if (entries.Length == 0)
+        {
+            Console.WriteLine("No manifest entries matched.");
+            return 1;
+        }
+
+        IReadOnlyDictionary<string, string>? spriteMap = null;
+        if (spriteNames.Count > 0)
+        {
+            spriteMap = spriteNames.ToDictionary(
+                static spriteName => spriteName,
+                static spriteName => spriteName,
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            var entryOutput = Path.Combine(output, entry.BaseName);
+            var results = exporter.ExportSprites(entry, entryOutput, spriteMap);
+            if (results.Count == 0)
+            {
+                Console.WriteLine($"{entry.BaseName} -> no matching Sprite assets");
+                continue;
+            }
+
+            foreach (var result in results)
+            {
+                Console.WriteLine($"{entry.BaseName}:{result.SpriteName} -> {result.OutputPath}");
+            }
+        }
+
+        return 0;
+    }
+
     private static int RunGenerateManifest(string[] args)
     {
         var options = ParseOptions(args);
@@ -653,6 +707,9 @@ public sealed class CommandDispatcher
         Console.WriteLine("  extract-textures --name <resource> [--texture-name <name> ...] [--output <dir>] [--uma-dir <path>]");
         Console.WriteLine("    Load bundle files and export matching Texture2D assets as PNG files.");
         Console.WriteLine();
+        Console.WriteLine("  extract-sprites --name <resource> [--sprite-name <name> ...] [--output <dir>] [--uma-dir <path>]");
+        Console.WriteLine("    Load bundle files and export matching Sprite assets as cropped PNG files.");
+        Console.WriteLine();
         Console.WriteLine("  extract-chara-icons --ids <id> [<id> ...] [--plate <n>] [--output <dir>] [--uma-dir <path>]");
         Console.WriteLine("    Resolve character icon bundle names from IDs and export Texture2D PNGs.");
         Console.WriteLine("    Repeat --family with chr, trained, round, plus to include multiple icon families.");
@@ -681,6 +738,7 @@ public sealed class CommandDispatcher
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- dump-asset --name rank_tex --asset-name utx_txt_rank_00");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- stage-chara-icons --ids 1058 105801 --decrypt --output .\out\icons");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --output .\out\png");
+        Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-sprites --name rank_tex --sprite-name utx_txt_rank_00 --output .\out\sprites");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\organized");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-support-icons --ids 30001 --output .\out\support-icons");
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- extract-skill-icons --skill-ids 20011 20145 --output .\out\skill-icons");
