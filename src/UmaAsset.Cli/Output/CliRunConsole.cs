@@ -311,7 +311,8 @@ public sealed class CliPipelineProgressReporter
     private PipelineProgressSnapshot snapshot;
     private int frameIndex;
     private int currentTargetTotal = 1;
-    private int currentTargetCompleted;
+    private int currentTargetProcessed;
+    private int currentTargetFailures;
     private int currentItemTotal = 1;
     private int currentItemCompleted;
     private string? lastPrinted;
@@ -347,7 +348,8 @@ public sealed class CliPipelineProgressReporter
     {
         currentTargetKey = $"{region} // {target}";
         currentTargetTotal = Math.Max(1, totalItems);
-        currentTargetCompleted = 0;
+        currentTargetProcessed = 0;
+        currentTargetFailures = 0;
         currentItemTotal = Math.Max(1, totalItems);
         currentItemCompleted = 0;
         targets[currentTargetKey] = new PipelineTargetSnapshot(currentTargetKey, currentTargetKey, PipelineTargetState.InProgress, 0);
@@ -368,13 +370,13 @@ public sealed class CliPipelineProgressReporter
     public void AdvanceItem(string itemLabel, int steps = 1)
     {
         var increment = Math.Max(1, steps);
-        currentTargetCompleted = Math.Min(currentTargetTotal, currentTargetCompleted + increment);
+        currentTargetProcessed = Math.Min(currentTargetTotal, currentTargetProcessed + increment);
         currentItemCompleted = Math.Min(currentItemTotal, currentItemCompleted + increment);
 
         snapshot = snapshot with
         {
             ItemLabel = itemLabel,
-            TargetRatio = (double)currentTargetCompleted / currentTargetTotal,
+            TargetRatio = (double)currentTargetProcessed / currentTargetTotal,
             ItemRatio = (double)currentItemCompleted / currentItemTotal,
         };
 
@@ -384,7 +386,6 @@ public sealed class CliPipelineProgressReporter
 
     public void CompletePhase(string summary)
     {
-        currentTargetCompleted = currentTargetTotal;
         currentItemCompleted = currentItemTotal;
         snapshot = snapshot with
         {
@@ -417,6 +418,12 @@ public sealed class CliPipelineProgressReporter
     public void ReportFailure(string message)
     {
         errors.Add(message);
+        if (!string.IsNullOrWhiteSpace(currentTargetKey) && targets.ContainsKey(currentTargetKey))
+        {
+            currentTargetFailures = Math.Min(currentTargetTotal, currentTargetFailures + 1);
+            UpdateCurrentTarget(PipelineTargetState.InProgress);
+        }
+
         UpdateCollections();
         Refresh();
     }
@@ -458,9 +465,10 @@ public sealed class CliPipelineProgressReporter
             return;
         }
 
-        var successPercent = state == PipelineTargetState.Completed
-            ? 100
-            : (int)Math.Round(snapshot.TargetRatio * 100, MidpointRounding.AwayFromZero);
+        var successCount = Math.Max(0, currentTargetProcessed - currentTargetFailures);
+        var successPercent = currentTargetTotal <= 0
+            ? 0
+            : (int)Math.Round((double)successCount / currentTargetTotal * 100, MidpointRounding.AwayFromZero);
         targets[currentTargetKey] = target with
         {
             State = state,
