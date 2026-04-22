@@ -79,11 +79,49 @@ dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-
 dotnet run --project .\src\UmaAsset.Cli -- extract-raw-atlases --global-dir "%USERPROFILE%\AppData\LocalLow\Cygames\umamusume" --japan-dir "D:\steamapps\common\UmamusumePrettyDerby_Jpn\UmamusumePrettyDerby_Jpn_Data\Persistent" --output .\out\raw-atlases
 ```
 
+## Usage
+
+Common help:
+
+```powershell
+dotnet run --project .\src\UmaAsset.Cli -- --help
+dotnet run --project .\src\UmaAsset.Cli -- help lookup
+dotnet run --project .\src\UmaAsset.Cli -- search --help
+```
+
+Exploration and lookup:
+
+```powershell
+dotnet run --project .\src\UmaAsset.Cli -- lookup --name common_tex --json
+dotnet run --project .\src\UmaAsset.Cli -- search --contains support_card --limit 100
+dotnet run --project .\src\UmaAsset.Cli -- inspect-bundle --name common_tex
+dotnet run --project .\src\UmaAsset.Cli -- dump-asset --name rank_tex --asset-name utx_txt_rank_00
+```
+
+Ad hoc extraction:
+
+```powershell
+dotnet run --project .\src\UmaAsset.Cli -- extract-textures --name tex_support_card_10001 --output .\out\probe
+dotnet run --project .\src\UmaAsset.Cli -- extract-sprites --name common_tex --sprite-name utx_ico_weather_00 --output .\out\probe
+dotnet run --project .\src\UmaAsset.Cli -- extract-chara-icons --ids 1058 105801 --family chr --family trained --output .\out\character
+dotnet run --project .\src\UmaAsset.Cli -- extract-support-icons --ids 10001 --output .\out\support
+dotnet run --project .\src\UmaAsset.Cli -- extract-skill-icons --skill-ids 100011 10321 --output .\out\skills
+```
+
+Catalog and pipeline runs:
+
+```powershell
+dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --catalog ui-common-icons --catalog ui-rank-icons --output .\out\ui
+dotnet run --project .\src\UmaAsset.Cli -- extract-raw-atlases --preset extras --preset scenario --output .\out\raw-atlases
+dotnet run --project .\src\UmaAsset.Cli -- sync-all --global-dir "%USERPROFILE%\AppData\LocalLow\Cygames\umamusume" --japan-dir "D:\steamapps\common\UmamusumePrettyDerby_Jpn\UmamusumePrettyDerby_Jpn_Data\Persistent" --output .\out\sync-all
+```
+
 ## Notes
 
 - `--uma-dir` should point at the game data directory that contains `dat/`, `meta`, and `master/master.mdb`.
 - `extract-ui-icons` can process one copied install with `--uma-dir` or both regions together with `--global-dir` and `--japan-dir`.
 - `extract-raw-atlases` can process one copied install with `--uma-dir` or both regions together with `--global-dir` and `--japan-dir`.
+- exploratory commands are available too: `lookup`, `search`, `inspect-bundle`, `dump-asset`, `stage`, `extract-textures`, and `extract-sprites`.
 - `sync-gametora` is metadata-oriented and does not download remote images.
 - `extract-ui-icons` exports flattened PNGs under `<output>/<region>/icons/` and split catalogs under `<output>/<region>/catalogs/`.
 - `extract-raw-atlases` exports atlas sprites under `<output>/<region>/raw-atlases/<atlas>/` and writes `<output>/<region>/catalogs/raw-atlas-index.json`.

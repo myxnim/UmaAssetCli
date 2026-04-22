@@ -20,7 +20,8 @@ public sealed class TextureBundleExporter
     public IReadOnlyList<TextureExportResult> ExportTextures(
         ManifestEntry entry,
         string outputRoot,
-        IReadOnlyCollection<string>? exactTextureNames = null)
+        IReadOnlyCollection<string>? exactTextureNames = null,
+        bool overwriteExisting = true)
     {
         var results = new List<TextureExportResult>();
         Directory.CreateDirectory(outputRoot);
@@ -64,6 +65,11 @@ public sealed class TextureBundleExporter
                 Directory.CreateDirectory(directory);
 
                 var outputPath = Path.Combine(directory, $"{safeTextureName}.png");
+                if (!overwriteExisting && File.Exists(outputPath))
+                {
+                    continue;
+                }
+
                 image.SaveAsPng(outputPath);
 
                 results.Add(new TextureExportResult(textureName, outputPath));

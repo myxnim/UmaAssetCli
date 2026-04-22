@@ -7,6 +7,7 @@
     <PackageVersion Include="AssetsTools.NET" Version="3.0.4" />
     <PackageVersion Include="AssetsTools.NET.Texture" Version="3.0.2" />
     <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageVersion Include="Spectre.Console" Version="0.55.2" />
     <PackageVersion Include="sqlite-net-base" Version="1.9.172" />
     <PackageVersion Include="SQLite3MC.PCLRaw.bundle" Version="2.3.3" />
   </ItemGroup>

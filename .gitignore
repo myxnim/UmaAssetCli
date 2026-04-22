@@ -2,3 +2,4 @@ bin/
 obj/
 out/
 .dotnet-home/
+.cache_gametora/

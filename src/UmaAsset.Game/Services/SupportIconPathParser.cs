@@ -13,6 +13,9 @@ public static partial class SupportIconPathParser
     [GeneratedRegex(@"^tex_support_card_(\d{5})$", RegexOptions.IgnoreCase)]
     private static partial Regex SupportCardFullRegex();
 
+    [GeneratedRegex(@"^tex_support_card_(\d{5})_mask$", RegexOptions.IgnoreCase)]
+    private static partial Regex SupportCardMaskRegex();
+
     public static string? ParseSupportId(string textureName)
     {
         return Parse(textureName)?.SupportId;
@@ -36,6 +39,12 @@ public static partial class SupportIconPathParser
         if (fullCardMatch.Success)
         {
             return new SupportImagePathInfo(fullCardMatch.Groups[1].Value, "card-full", textureName);
+        }
+
+        var maskMatch = SupportCardMaskRegex().Match(textureName);
+        if (maskMatch.Success)
+        {
+            return new SupportImagePathInfo(maskMatch.Groups[1].Value, "card-mask", textureName);
         }
 
         return null;

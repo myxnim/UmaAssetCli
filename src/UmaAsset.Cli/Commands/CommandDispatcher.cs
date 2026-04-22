@@ -9,7 +9,13 @@ public sealed class CommandDispatcher
     {
         if (args.Length == 0 || IsHelp(args[0]))
         {
-            PrintHelp();
+            PrintHelp(args.Length > 1 ? args[1] : null);
+            return Task.FromResult(0);
+        }
+
+        if (args.Length > 1 && IsHelp(args[1]))
+        {
+            PrintHelp(args[0]);
             return Task.FromResult(0);
         }
 
@@ -546,82 +552,91 @@ public sealed class CommandDispatcher
         console.WriteBanner(appInfo);
         console.WriteMetadata(BuildUiIconMetadataLines(targets, definitions, output));
 
-        var progress = console.BeginProgress(targets.Sum(static target => target.TotalRequestedIcons));
         var runSummary = new UiIconExtractionRunSummary();
-
-        foreach (var target in targets)
+        console.RunPipelineProgress(targets.Count * definitions.Count, progress =>
         {
-            var manifest = new ManifestDatabase(target.Install.Path);
-            var spriteExporter = new SpriteBundleExporter(manifest);
-            var catalogWriter = new SplitUiIconCatalogWriter();
-
-            Directory.CreateDirectory(target.IconsRoot);
-            Directory.CreateDirectory(target.CatalogsRoot);
-
-            foreach (var definition in definitions)
+            progress.SeedTargets(targets.SelectMany(target => definitions.Select(definition => $"{target.Region} // {definition.CatalogName}")));
+            foreach (var target in targets)
             {
-                var entry = manifest.FindByName(definition.AtlasName);
-                if (entry is null)
+                var manifest = new ManifestDatabase(target.Install.Path);
+                var spriteExporter = new SpriteBundleExporter(manifest);
+                var catalogWriter = new SplitUiIconCatalogWriter();
+
+                Directory.CreateDirectory(target.IconsRoot);
+                Directory.CreateDirectory(target.CatalogsRoot);
+
+                foreach (var definition in definitions)
                 {
-                    runSummary.Failures.Add($"[{target.Region}] missing atlas entry: {definition.AtlasName}");
-                    progress.Advance($"{target.Region}/{definition.AtlasName} missing", definition.Icons.Count);
-                    continue;
+                    progress.StartPhase(target.Region, definition.CatalogName, definition.Icons.Count);
+                    var entry = manifest.FindByName(definition.AtlasName);
+                    if (entry is null)
+                    {
+                        var message = $"[{target.Region}] missing atlas entry: {definition.AtlasName}";
+                        runSummary.Failures.Add(message);
+                        progress.ReportFailure(message);
+                        progress.CompletePhase($"{target.Region} // {definition.CatalogName} missing atlas");
+                        continue;
+                    }
+
+                    var spriteMap = definition.Icons.ToDictionary(
+                        static icon => icon.SpriteName,
+                        static icon => icon.SpriteName,
+                        StringComparer.OrdinalIgnoreCase);
+                    var results = spriteExporter.ExportSprites(
+                        entry,
+                        target.IconsRoot,
+                        spriteMap,
+                        spriteName => progress.AdvanceItem(spriteName));
+                    if (results.Count == 0)
+                    {
+                        var message = $"[{target.Region}] no matching sprites exported from {definition.AtlasName}";
+                        runSummary.Failures.Add(message);
+                        progress.ReportFailure(message);
+                        progress.CompletePhase($"{target.Region} // {definition.CatalogName} exported no icons");
+                        continue;
+                    }
+
+                    runSummary.ExportedIcons += results.Count;
+                    var catalogEntries = new List<UiIconCatalogEntry>(results.Count);
+                    var exportedSpriteNames = results
+                        .Select(static result => result.SpriteName)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    foreach (var result in results)
+                    {
+                        var iconDefinition = definition.Icons.First(icon => string.Equals(icon.SpriteName, result.SpriteName, StringComparison.OrdinalIgnoreCase));
+                        var relativePath = Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/');
+                        catalogEntries.Add(new UiIconCatalogEntry(
+                            iconDefinition.Family,
+                            iconDefinition.Key,
+                            iconDefinition.Label,
+                            result.SpriteName,
+                            relativePath));
+                    }
+
+                    if (results.Count < definition.Icons.Count)
+                    {
+                        var missingSpriteNames = definition.Icons
+                            .Where(icon => !exportedSpriteNames.Contains(icon.SpriteName))
+                            .Select(static icon => icon.SpriteName)
+                            .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
+                            .ToArray();
+                        var message = $"[{target.Region}] {definition.CatalogName} exported {results.Count}/{definition.Icons.Count} icons; missing: {string.Join(", ", missingSpriteNames)}";
+                        runSummary.Failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+
+                    _ = catalogWriter.Write(target.CatalogsRoot, definition.CatalogName, catalogEntries);
+                    runSummary.CatalogsWritten++;
+                    progress.CompletePhase($"{target.Region} // {definition.CatalogName} complete");
                 }
 
-                var spriteMap = definition.Icons.ToDictionary(
-                    static icon => icon.SpriteName,
-                    static icon => icon.SpriteName,
-                    StringComparer.OrdinalIgnoreCase);
-                var results = spriteExporter.ExportSprites(
-                    entry,
-                    target.IconsRoot,
-                    spriteMap,
-                    spriteName => progress.Advance($"{target.Region}/{definition.AtlasName}/{spriteName}"));
-                if (results.Count == 0)
-                {
-                    runSummary.Failures.Add($"[{target.Region}] no matching sprites exported from {definition.AtlasName}");
-                    progress.Advance($"{target.Region}/{definition.AtlasName} empty", definition.Icons.Count);
-                    continue;
-                }
-
-                runSummary.ExportedIcons += results.Count;
-                var catalogEntries = new List<UiIconCatalogEntry>(results.Count);
-                var exportedSpriteNames = results
-                    .Select(static result => result.SpriteName)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                foreach (var result in results)
-                {
-                    var iconDefinition = definition.Icons.First(icon => string.Equals(icon.SpriteName, result.SpriteName, StringComparison.OrdinalIgnoreCase));
-                    var relativePath = Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/');
-                    catalogEntries.Add(new UiIconCatalogEntry(
-                        iconDefinition.Family,
-                        iconDefinition.Key,
-                        iconDefinition.Label,
-                        result.SpriteName,
-                        relativePath));
-                }
-
-                var missingCount = Math.Max(0, definition.Icons.Count - results.Count);
-                if (missingCount > 0)
-                {
-                    var missingSpriteNames = definition.Icons
-                        .Where(icon => !exportedSpriteNames.Contains(icon.SpriteName))
-                        .Select(static icon => icon.SpriteName)
-                        .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
-                        .ToArray();
-                    runSummary.Failures.Add(
-                        $"[{target.Region}] {definition.CatalogName} exported {results.Count}/{definition.Icons.Count} icons; missing: {string.Join(", ", missingSpriteNames)}");
-                    progress.Advance($"{target.Region}/{definition.AtlasName} partial", missingCount);
-                }
-
-                _ = catalogWriter.Write(target.CatalogsRoot, definition.CatalogName, catalogEntries);
-                runSummary.CatalogsWritten++;
+                runSummary.Completed.Add($"[{target.Region}] {target.Install.Path} -> {target.RegionRoot}");
             }
 
-            runSummary.Completed.Add($"[{target.Region}] {target.Install.Path} -> {target.RegionRoot}");
-        }
+            progress.Finish("ui icon extraction complete");
+            return 0;
+        });
 
-        progress.Finish("complete");
         console.WriteSection("Failed:", runSummary.Failures);
         console.WriteSection("Done:", BuildUiIconDoneLines(runSummary, targets));
 
@@ -663,60 +678,79 @@ public sealed class CommandDispatcher
             discoveredCounts.Add(atlasNames.Count);
         }
 
-        var progress = console.BeginProgress(discoveredCounts.Sum());
         var spriteIndexWriter = new RawAtlasIndexWriter();
         var failures = new List<string>();
         var done = new List<string>();
         var atlasExportCount = 0;
         var spriteExportCount = 0;
-        foreach (var target in targets)
+        console.RunPipelineProgress(discoveredCounts.Sum(), progress =>
         {
-            var manifest = new ManifestDatabase(target.Install.Path);
-            var spriteExporter = new SpriteBundleExporter(manifest);
-            var atlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, requestedPresets, explicitAtlasNames);
-            var indexEntries = new List<RawAtlasIndexEntry>();
-
-            foreach (var atlasName in atlasNames)
+            progress.SeedTargets(targets.SelectMany(target =>
             {
-                var entry = manifest.FindByName(atlasName);
-                if (entry is null)
-                {
-                    failures.Add($"[{target.Region}] missing atlas entry: {atlasName}");
-                    progress.Advance($"{target.Region}/{atlasName} missing");
-                    continue;
-                }
+                var manifest = new ManifestDatabase(target.Install.Path);
+                var atlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, requestedPresets, explicitAtlasNames);
+                return atlasNames.Select(atlasName => $"{target.Region} // {atlasName}");
+            }));
+            foreach (var target in targets)
+            {
+                var manifest = new ManifestDatabase(target.Install.Path);
+                var spriteExporter = new SpriteBundleExporter(manifest);
+                var atlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, requestedPresets, explicitAtlasNames);
+                var indexEntries = new List<RawAtlasIndexEntry>();
 
-                var atlasOutputRoot = Path.Combine(target.RegionRoot, "raw-atlases", atlasName);
-                try
+                foreach (var atlasName in atlasNames)
                 {
-                    var results = spriteExporter.ExportSprites(entry, atlasOutputRoot);
-                    atlasExportCount++;
-                    spriteExportCount += results.Count;
-
-                    foreach (var result in results)
+                    progress.StartPhase(target.Region, "Raw Atlas", 1);
+                    var entry = manifest.FindByName(atlasName);
+                    if (entry is null)
                     {
-                        var relativePath = Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/');
-                        indexEntries.Add(new RawAtlasIndexEntry(target.Region, atlasName, result.SpriteName, relativePath));
+                        var message = $"[{target.Region}] missing atlas entry: {atlasName}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                        progress.AdvanceItem($"{atlasName} missing");
+                        progress.CompletePhase($"{target.Region} // {atlasName} missing");
+                        continue;
                     }
 
-                    if (results.Count == 0)
+                    var atlasOutputRoot = Path.Combine(target.RegionRoot, "raw-atlases", atlasName);
+                    try
                     {
-                        failures.Add($"[{target.Region}] {atlasName} exported no sprites");
+                        var results = spriteExporter.ExportSprites(entry, atlasOutputRoot);
+                        atlasExportCount++;
+                        spriteExportCount += results.Count;
+
+                        foreach (var result in results)
+                        {
+                            var relativePath = Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/');
+                            indexEntries.Add(new RawAtlasIndexEntry(target.Region, atlasName, result.SpriteName, relativePath));
+                        }
+
+                        if (results.Count == 0)
+                        {
+                            var message = $"[{target.Region}] {atlasName} exported no sprites";
+                            failures.Add(message);
+                            progress.ReportFailure(message);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    failures.Add($"[{target.Region}] {atlasName} failed: {ex.Message}");
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] {atlasName} failed: {ex.Message}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+
+                    progress.AdvanceItem(atlasName);
+                    progress.CompletePhase($"{target.Region} // {atlasName} complete");
                 }
 
-                progress.Advance($"{target.Region}/{atlasName}");
+                var indexPath = spriteIndexWriter.Write(target.RegionRoot, indexEntries);
+                done.Add($"[{target.Region}] raw atlases: {atlasNames.Count}, sprites: {indexEntries.Count}, index: {indexPath}");
             }
 
-            var indexPath = spriteIndexWriter.Write(target.RegionRoot, indexEntries);
-            done.Add($"[{target.Region}] raw atlases: {atlasNames.Count}, sprites: {indexEntries.Count}, index: {indexPath}");
-        }
+            progress.Finish("raw atlas extraction complete");
+            return 0;
+        });
 
-        progress.Finish("complete");
         console.WriteSection("Failed:", failures);
         console.WriteSection("Done:", BuildRawAtlasDoneLines(done, atlasExportCount, spriteExportCount));
         return atlasExportCount == 0 ? 1 : 0;
@@ -739,194 +773,252 @@ public sealed class CommandDispatcher
             $"GameTora enrichment: {(includeGameTora ? "enabled" : "disabled")}",
             $"Output root: {output}",
             "Game Files Path:",
-            .. targets.Select(static target => $"  [{target.Region}] {target.Install.Path}")
+            .. targets.SelectMany(static target => new[]
+            {
+                $"  [{target.Region}]",
+                $"    {target.Install.Path}",
+            })
         ]);
 
-        var totalSteps = targets.Count * 6;
-        var progress = console.BeginProgress(totalSteps);
         var failures = new List<string>();
         var done = new List<string>();
         var regionReports = new List<SyncAllRegionReport>();
-
-        foreach (var target in targets)
+        var sharedSkillRecords = new Dictionary<int, MasterSkillRecord>();
+        var sharedAssetTargets = targets
+            .OrderBy(static target => string.Equals(target.Region, "japan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ToArray();
+        console.RunPipelineProgress(targets.Count * 6, progress =>
         {
-            var manifest = new ManifestDatabase(target.Install.Path);
-            var textureExporter = new TextureBundleExporter(manifest);
-            var spriteExporter = new SpriteBundleExporter(manifest);
-            var master = new MasterDataDatabase(target.Install.Path);
-
-            Directory.CreateDirectory(target.RegionRoot);
-
-            var characterEntries = manifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"]);
-            foreach (var entry in characterEntries)
+            progress.SeedTargets(targets.SelectMany(target => new[]
             {
-                if (CharaIconPathParser.Parse(entry.BaseName) is null)
+                $"{target.Region} // Character Icons",
+                $"{target.Region} // Support Images",
+                $"{target.Region} // Skill Icons",
+                $"{target.Region} // Curated UI Icons",
+                $"{target.Region} // Raw Atlases",
+                $"{target.Region} // Metadata",
+            }));
+            foreach (var target in sharedAssetTargets)
+            {
+                var manifest = new ManifestDatabase(target.Install.Path);
+                var textureExporter = new TextureBundleExporter(manifest);
+                var master = new MasterDataDatabase(target.Install.Path);
+
+                var characterEntries = manifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"])
+                    .Where(static entry => CharaIconPathParser.Parse(entry.BaseName) is not null)
+                    .ToArray();
+                progress.StartPhase(target.Region, "Character Icons", characterEntries.Length);
+                foreach (var entry in characterEntries)
                 {
-                    continue;
+                    try
+                    {
+                        textureExporter.ExportTextures(entry, output, [entry.BaseName], overwriteExisting: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] character {entry.BaseName} failed: {ex.Message}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+
+                    progress.AdvanceItem(entry.BaseName);
+                }
+                progress.CompletePhase($"{target.Region} // character icons complete");
+
+                var supportEntries = manifest.SearchByPrefix(["support_thumb_", "support_card_s_", "tex_support_card_"])
+                    .Where(static entry =>
+                    {
+                        var parsedSupport = SupportIconPathParser.Parse(entry.BaseName);
+                        return parsedSupport is not null && !string.Equals(parsedSupport.Family, "card-mask", StringComparison.OrdinalIgnoreCase);
+                    })
+                    .ToArray();
+                progress.StartPhase(target.Region, "Support Images", supportEntries.Length);
+                foreach (var entry in supportEntries)
+                {
+                    try
+                    {
+                        textureExporter.ExportTextures(entry, output, [entry.BaseName], overwriteExisting: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] support {entry.BaseName} failed: {ex.Message}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+
+                    progress.AdvanceItem(entry.BaseName);
+                }
+                progress.CompletePhase($"{target.Region} // support images complete");
+
+                var skillRecords = master.GetAllSkills();
+                var skillResourceNames = skillRecords
+                    .Select(static skill => $"utx_ico_skill_{skill.IconId}")
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var skillEntries = manifest.FindMany(skillResourceNames).ToArray();
+                progress.StartPhase(target.Region, "Skill Icons", skillEntries.Length);
+                foreach (var entry in skillEntries)
+                {
+                    try
+                    {
+                        textureExporter.ExportTextures(entry, output, [entry.BaseName], overwriteExisting: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] skill icon {entry.BaseName} failed: {ex.Message}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+
+                    progress.AdvanceItem(entry.BaseName);
                 }
 
-                try
+                foreach (var skill in skillRecords)
                 {
-                    textureExporter.ExportTextures(entry, target.RegionRoot, [entry.BaseName]);
+                    if (sharedSkillRecords.ContainsKey(skill.SkillId))
+                    {
+                        continue;
+                    }
+
+                    sharedSkillRecords[skill.SkillId] = skill;
                 }
-                catch (Exception ex)
-                {
-                    failures.Add($"[{target.Region}] character {entry.BaseName} failed: {ex.Message}");
-                }
+                progress.CompletePhase($"{target.Region} // skill icons complete");
             }
 
             var characterManifestPath = AssetManifestGenerator.Write(
-                target.RegionRoot,
-                Path.Combine(target.RegionRoot, "catalogs", "character-icons.json"));
-            progress.Advance($"{target.Region}/characters");
-
-            var supportEntries = manifest.SearchByPrefix(["support_thumb_", "support_card_s_", "tex_support_card_"]);
-            foreach (var entry in supportEntries)
-            {
-                try
-                {
-                    textureExporter.ExportTextures(entry, target.RegionRoot, [entry.BaseName]);
-                }
-                catch (Exception ex)
-                {
-                    failures.Add($"[{target.Region}] support {entry.BaseName} failed: {ex.Message}");
-                }
-            }
-
+                output,
+                Path.Combine(output, "catalogs", "character-icons.json"));
             var supportManifestPath = SupportAssetManifestGenerator.Write(
-                target.RegionRoot,
-                Path.Combine(target.RegionRoot, "catalogs", "support-icons.json"));
-            progress.Advance($"{target.Region}/supports");
-
-            var skillRecords = master.GetAllSkills();
-            var skillResourceNames = skillRecords
-                .Select(static skill => $"utx_ico_skill_{skill.IconId}")
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var skillEntries = manifest.FindMany(skillResourceNames);
-            foreach (var entry in skillEntries)
-            {
-                try
-                {
-                    textureExporter.ExportTextures(entry, target.RegionRoot, [entry.BaseName]);
-                }
-                catch (Exception ex)
-                {
-                    failures.Add($"[{target.Region}] skill icon {entry.BaseName} failed: {ex.Message}");
-                }
-            }
-
+                output,
+                Path.Combine(output, "catalogs", "support-icons.json"));
             var skillCatalogPath = SkillCatalogGenerator.Write(
-                skillRecords,
-                target.RegionRoot,
-                Path.Combine(target.RegionRoot, "catalogs", "skill-catalog.json"));
-            progress.Advance($"{target.Region}/skills");
+                sharedSkillRecords.Values.OrderBy(static skill => skill.SkillId).ToArray(),
+                output,
+                Path.Combine(output, "catalogs", "skill-catalog.json"));
 
-            var uiCatalogWriter = new SplitUiIconCatalogWriter();
-            var uiIconsRoot = Path.Combine(target.RegionRoot, "icons");
-            var uiCatalogsRoot = Path.Combine(target.RegionRoot, "catalogs");
-            var uiCatalogCount = 0;
-            foreach (var definition in uiDefinitions)
+            foreach (var target in targets)
             {
-                var entry = manifest.FindByName(definition.AtlasName);
-                if (entry is null)
-                {
-                    failures.Add($"[{target.Region}] missing curated atlas entry: {definition.AtlasName}");
-                    continue;
-                }
+                var manifest = new ManifestDatabase(target.Install.Path);
+                var spriteExporter = new SpriteBundleExporter(manifest);
+                Directory.CreateDirectory(target.RegionRoot);
 
-                var spriteMap = definition.Icons.ToDictionary(
-                    static icon => icon.SpriteName,
-                    static icon => icon.SpriteName,
-                    StringComparer.OrdinalIgnoreCase);
-                var results = spriteExporter.ExportSprites(entry, uiIconsRoot, spriteMap);
-                var catalogEntries = results
-                    .Select(result =>
+                var uiCatalogWriter = new SplitUiIconCatalogWriter();
+                var uiIconsRoot = Path.Combine(target.RegionRoot, "icons");
+                var uiCatalogsRoot = Path.Combine(target.RegionRoot, "catalogs");
+                var uiCatalogCount = 0;
+                progress.StartPhase(target.Region, "Curated UI Icons", uiDefinitions.Sum(static definition => definition.Icons.Count));
+                foreach (var definition in uiDefinitions)
+                {
+                    var entry = manifest.FindByName(definition.AtlasName);
+                    if (entry is null)
                     {
-                        var definitionEntry = definition.Icons.First(icon => string.Equals(icon.SpriteName, result.SpriteName, StringComparison.OrdinalIgnoreCase));
-                        var relativePath = Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/');
-                        return new UiIconCatalogEntry(definitionEntry.Family, definitionEntry.Key, definitionEntry.Label, result.SpriteName, relativePath);
-                    })
-                    .ToArray();
-                _ = uiCatalogWriter.Write(uiCatalogsRoot, definition.CatalogName, catalogEntries);
-                uiCatalogCount++;
-            }
+                        var message = $"[{target.Region}] missing curated atlas entry: {definition.AtlasName}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                        continue;
+                    }
 
-            progress.Advance($"{target.Region}/ui");
+                    var spriteMap = definition.Icons.ToDictionary(
+                        static icon => icon.SpriteName,
+                        static icon => icon.SpriteName,
+                        StringComparer.OrdinalIgnoreCase);
+                    var results = spriteExporter.ExportSprites(entry, uiIconsRoot, spriteMap, spriteName => progress.AdvanceItem(spriteName));
+                    var catalogEntries = results
+                        .Select(result =>
+                        {
+                            var definitionEntry = definition.Icons.First(icon => string.Equals(icon.SpriteName, result.SpriteName, StringComparison.OrdinalIgnoreCase));
+                            var relativePath = Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/');
+                            return new UiIconCatalogEntry(definitionEntry.Family, definitionEntry.Key, definitionEntry.Label, result.SpriteName, relativePath);
+                        })
+                        .ToArray();
+                    _ = uiCatalogWriter.Write(uiCatalogsRoot, definition.CatalogName, catalogEntries);
+                    uiCatalogCount++;
+                }
+                progress.CompletePhase($"{target.Region} // curated ui icons complete");
 
-            var rawAtlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, ["extras", "honor", "scenario"]);
-            var rawAtlasEntries = new List<RawAtlasIndexEntry>();
-            foreach (var atlasName in rawAtlasNames)
-            {
-                var entry = manifest.FindByName(atlasName);
-                if (entry is null)
+                var rawAtlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, ["extras", "honor", "scenario"]);
+                var rawAtlasEntries = new List<RawAtlasIndexEntry>();
+                progress.StartPhase(target.Region, "Raw Atlases", rawAtlasNames.Count);
+                foreach (var atlasName in rawAtlasNames)
                 {
-                    continue;
+                    var entry = manifest.FindByName(atlasName);
+                    if (entry is null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        var rawOutputRoot = Path.Combine(target.RegionRoot, "raw-atlases", atlasName);
+                        var results = spriteExporter.ExportSprites(entry, rawOutputRoot);
+                        rawAtlasEntries.AddRange(results.Select(result =>
+                            new RawAtlasIndexEntry(
+                                target.Region,
+                                atlasName,
+                                result.SpriteName,
+                                Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/'))));
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] raw atlas {atlasName} failed: {ex.Message}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+
+                    progress.AdvanceItem(atlasName);
                 }
 
-                try
+                _ = new RawAtlasIndexWriter().Write(target.RegionRoot, rawAtlasEntries);
+                progress.CompletePhase($"{target.Region} // raw atlases complete");
+
+                progress.StartPhase(target.Region, "Metadata", 1);
+                if (includeGameTora)
                 {
-                    var rawOutputRoot = Path.Combine(target.RegionRoot, "raw-atlases", atlasName);
-                    var results = spriteExporter.ExportSprites(entry, rawOutputRoot);
-                    rawAtlasEntries.AddRange(results.Select(result =>
-                        new RawAtlasIndexEntry(
-                            target.Region,
-                            atlasName,
-                            result.SpriteName,
-                            Path.GetRelativePath(target.RegionRoot, result.OutputPath).Replace('\\', '/'))));
+                    var gameToraOutput = Path.Combine(target.RegionRoot, "external", "gametora");
+                    var cacheDirectory = Path.Combine(Environment.CurrentDirectory, ".cache_gametora", target.Region);
+                    var server = string.Equals(target.Region, "japan", StringComparison.OrdinalIgnoreCase) ? "japan" : "global";
+                    _ = new GameToraCatalogSync(cacheDirectory, noFetch: false)
+                        .SyncAsync(gameToraOutput, includeSupports: true, server)
+                        .GetAwaiter()
+                        .GetResult();
                 }
-                catch (Exception ex)
+                progress.AdvanceItem(includeGameTora ? "External metadata synced" : "Local manifests only");
+                progress.CompletePhase($"{target.Region} // metadata complete");
+
+                var characterManifest = AssetManifestGenerator.Build(output);
+                var supportManifest = SupportAssetManifestGenerator.Build(output);
+                var skillCount = JsonSerializer.Deserialize<GeneratedSkillCatalog>(File.ReadAllText(skillCatalogPath))?.Skills.Count ?? 0;
+                var regionReport = new SyncAllRegionReport
                 {
-                    failures.Add($"[{target.Region}] raw atlas {atlasName} failed: {ex.Message}");
-                }
+                    Region = target.Region,
+                    UmaDir = target.Install.Path,
+                    CharacterCount = characterManifest.Characters.Count,
+                    SupportCount = supportManifest.Supports.Count,
+                    SkillCount = skillCount,
+                    UiCatalogCount = uiCatalogCount,
+                    RawAtlasCount = rawAtlasNames.Count,
+                    RawAtlasSpriteCount = rawAtlasEntries.Count,
+                    CharacterManifestPath = Path.GetRelativePath(output, characterManifestPath).Replace('\\', '/'),
+                    SupportManifestPath = Path.GetRelativePath(output, supportManifestPath).Replace('\\', '/'),
+                    SkillCatalogPath = Path.GetRelativePath(output, skillCatalogPath).Replace('\\', '/'),
+                };
+                regionReports.Add(regionReport);
+                done.Add($"[{target.Region}] shared assets -> characters: {regionReport.CharacterCount}, supports: {regionReport.SupportCount}, skills: {regionReport.SkillCount}; raw atlases: {regionReport.RawAtlasCount}");
             }
 
-            _ = new RawAtlasIndexWriter().Write(target.RegionRoot, rawAtlasEntries);
-            progress.Advance($"{target.Region}/raw-atlases");
-
-            if (includeGameTora)
-            {
-                var gameToraOutput = Path.Combine(target.RegionRoot, "external", "gametora");
-                var cacheDirectory = Path.Combine(Environment.CurrentDirectory, ".cache_gametora", target.Region);
-                var server = string.Equals(target.Region, "japan", StringComparison.OrdinalIgnoreCase) ? "japan" : "global";
-                _ = new GameToraCatalogSync(cacheDirectory, noFetch: false)
-                    .SyncAsync(gameToraOutput, includeSupports: true, server)
-                    .GetAwaiter()
-                    .GetResult();
-            }
-
-            progress.Advance($"{target.Region}/metadata");
-
-            var characterManifest = AssetManifestGenerator.Build(target.RegionRoot);
-            var supportManifest = SupportAssetManifestGenerator.Build(target.RegionRoot);
-            var regionReport = new SyncAllRegionReport
-            {
-                Region = target.Region,
-                UmaDir = target.Install.Path,
-                CharacterCount = characterManifest.Characters.Count,
-                SupportCount = supportManifest.Supports.Count,
-                SkillCount = skillRecords.Count,
-                UiCatalogCount = uiCatalogCount,
-                RawAtlasCount = rawAtlasNames.Count,
-                RawAtlasSpriteCount = rawAtlasEntries.Count,
-                CharacterManifestPath = Path.GetRelativePath(output, characterManifestPath).Replace('\\', '/'),
-                SupportManifestPath = Path.GetRelativePath(output, supportManifestPath).Replace('\\', '/'),
-                SkillCatalogPath = Path.GetRelativePath(output, skillCatalogPath).Replace('\\', '/'),
-            };
-            regionReports.Add(regionReport);
-            done.Add($"[{target.Region}] characters: {regionReport.CharacterCount}, supports: {regionReport.SupportCount}, skills: {regionReport.SkillCount}, raw atlases: {regionReport.RawAtlasCount}");
-        }
+            progress.Finish("sync-all complete");
+            return 0;
+        });
 
         var report = new SyncAllReport
         {
             GeneratedAtUtc = DateTime.UtcNow.ToString("O"),
             Regions = regionReports,
-            CrossRegion = BuildCrossRegionReport(targets, regionReports, output),
+            CrossRegion = BuildCrossRegionReport(targets),
         };
         var reportPath = SyncAllReportWriter.Write(report, Path.Combine(output, "sync-summary.json"));
         done.Add($"summary: {reportPath}");
 
-        progress.Finish("complete");
         console.WriteSection("Failed:", failures);
         console.WriteSection("Done:", done);
         return failures.Count > 0 ? 1 : 0;
@@ -989,9 +1081,19 @@ public sealed class CommandDispatcher
         return 1;
     }
 
-    private static void PrintHelp()
+    private static void PrintHelp(string? command = null)
     {
+        new CliRunConsole().WriteBanner(CliApplicationMetadata.Get());
+
+        if (!string.IsNullOrWhiteSpace(command))
+        {
+            PrintCommandHelp(command);
+            return;
+        }
+
         Console.WriteLine("UmaAssetCli");
+        Console.WriteLine();
+        Console.WriteLine("Use `help <command>` or `<command> --help` for command-specific help.");
         Console.WriteLine();
         Console.WriteLine("Commands");
         Console.WriteLine("  detect");
@@ -1077,6 +1179,79 @@ public sealed class CommandDispatcher
         Console.WriteLine(@"  dotnet run --project .\src\UmaAsset.Cli -- generate-manifest --input .\out\organized --output .\out\organized\character-icons.json");
     }
 
+    private static void PrintCommandHelp(string command)
+    {
+        switch (command.ToLowerInvariant())
+        {
+            case "detect":
+                Console.WriteLine("detect");
+                Console.WriteLine("  Detect local Umamusume data installs.");
+                Console.WriteLine("  Example:");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- detect");
+                return;
+
+            case "lookup":
+                Console.WriteLine("lookup --name <resource> [--name <resource> ...] [--uma-dir <path>] [--json]");
+                Console.WriteLine("  Resolve manifest entries by full resource name or basename.");
+                Console.WriteLine("  Example:");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- lookup --name chr_icon_1058_105801_02 --json");
+                return;
+
+            case "search":
+                Console.WriteLine("search --contains <text> [--contains <text> ...] [--limit <n>] [--uma-dir <path>] [--json]");
+                Console.WriteLine("  Search manifest entries by case-insensitive substring.");
+                Console.WriteLine("  Example:");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- search --contains support_card --limit 50");
+                return;
+
+            case "inspect-bundle":
+                Console.WriteLine("inspect-bundle --name <resource> [--name <resource> ...] [--uma-dir <path>]");
+                Console.WriteLine("  List named assets inside matching bundle files.");
+                Console.WriteLine("  Example:");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- inspect-bundle --name common_tex");
+                return;
+
+            case "dump-asset":
+                Console.WriteLine("dump-asset --name <resource> --asset-name <name> [--uma-dir <path>]");
+                Console.WriteLine("  Dump the field tree for a named asset inside a bundle.");
+                Console.WriteLine("  Example:");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- dump-asset --name rank_tex --asset-name utx_txt_rank_00");
+                return;
+
+            case "stage":
+            case "stage-chara-icons":
+                Console.WriteLine($"{command} [options]");
+                Console.WriteLine("  Copy matching bundle blobs into an output folder.");
+                Console.WriteLine("  Examples:");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- stage --name common_tex --output .\out\staged");
+                Console.WriteLine(@"    dotnet run --project .\src\UmaAsset.Cli -- stage-chara-icons --ids 1058 105801 --decrypt --output .\out\icons");
+                return;
+
+            case "extract-textures":
+            case "extract-sprites":
+            case "extract-chara-icons":
+            case "extract-support-icons":
+            case "extract-skill-icons":
+            case "extract-ui-icons":
+            case "extract-raw-atlases":
+            case "sync-all":
+            case "sync-gametora":
+            case "export-rank-badges":
+            case "generate-manifest":
+                Console.WriteLine($"{command}");
+                Console.WriteLine("  See the general help for full option details and examples.");
+                Console.WriteLine("  Example:");
+                Console.WriteLine($@"    dotnet run --project .\src\UmaAsset.Cli -- {command} --help");
+                return;
+
+            default:
+                Console.WriteLine($"Unknown command '{command}'.");
+                Console.WriteLine();
+                PrintHelp();
+                return;
+        }
+    }
+
     private static IReadOnlyList<UiIconExtractionTarget> ResolveRegionTargets(
         Dictionary<string, List<string>> options,
         string output)
@@ -1160,7 +1335,11 @@ public sealed class CommandDispatcher
             "Game Files Path:",
         };
 
-        lines.AddRange(targets.Select(static target => $"  [{target.Region}] {target.Install.Path}"));
+        lines.AddRange(targets.SelectMany(static target => new[]
+        {
+            $"  [{target.Region}]",
+            $"    {target.Install.Path}",
+        }));
         return lines;
     }
 
@@ -1204,7 +1383,11 @@ public sealed class CommandDispatcher
             "Game Files Path:",
         };
 
-        lines.AddRange(targets.Select(static target => $"  [{target.Region}] {target.Install.Path}"));
+        lines.AddRange(targets.SelectMany(static target => new[]
+        {
+            $"  [{target.Region}]",
+            $"    {target.Install.Path}",
+        }));
         return lines;
     }
 
@@ -1223,35 +1406,48 @@ public sealed class CommandDispatcher
     }
 
     private static SyncAllCrossRegionReport? BuildCrossRegionReport(
-        IReadOnlyList<UiIconExtractionTarget> targets,
-        IReadOnlyList<SyncAllRegionReport> regionReports,
-        string outputRoot)
+        IReadOnlyList<UiIconExtractionTarget> targets)
     {
         if (targets.Count < 2)
         {
             return null;
         }
 
-        var global = regionReports.FirstOrDefault(static report => string.Equals(report.Region, "global", StringComparison.OrdinalIgnoreCase));
-        var japan = regionReports.FirstOrDefault(static report => string.Equals(report.Region, "japan", StringComparison.OrdinalIgnoreCase));
+        var global = targets.FirstOrDefault(static target => string.Equals(target.Region, "global", StringComparison.OrdinalIgnoreCase));
+        var japan = targets.FirstOrDefault(static target => string.Equals(target.Region, "japan", StringComparison.OrdinalIgnoreCase));
         if (global is null || japan is null)
         {
             return null;
         }
 
-        var globalCharacterManifest = AssetManifestGenerator.Build(Path.Combine(outputRoot, "global"));
-        var japanCharacterManifest = AssetManifestGenerator.Build(Path.Combine(outputRoot, "japan"));
-        var globalSupportManifest = SupportAssetManifestGenerator.Build(Path.Combine(outputRoot, "global"));
-        var japanSupportManifest = SupportAssetManifestGenerator.Build(Path.Combine(outputRoot, "japan"));
-        var globalSkills = JsonSerializer.Deserialize<GeneratedSkillCatalog>(File.ReadAllText(Path.Combine(outputRoot, global.SkillCatalogPath.Replace('/', Path.DirectorySeparatorChar)))) ?? new GeneratedSkillCatalog();
-        var japanSkills = JsonSerializer.Deserialize<GeneratedSkillCatalog>(File.ReadAllText(Path.Combine(outputRoot, japan.SkillCatalogPath.Replace('/', Path.DirectorySeparatorChar)))) ?? new GeneratedSkillCatalog();
-
-        var globalCharacterIds = globalCharacterManifest.Characters.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var japanCharacterIds = japanCharacterManifest.Characters.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var globalSupportIds = globalSupportManifest.Supports.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var japanSupportIds = japanSupportManifest.Supports.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var globalSkillIds = globalSkills.Skills.Select(static skill => skill.SkillId).ToHashSet();
-        var japanSkillIds = japanSkills.Skills.Select(static skill => skill.SkillId).ToHashSet();
+        var globalManifest = new ManifestDatabase(global.Install.Path);
+        var japanManifest = new ManifestDatabase(japan.Install.Path);
+        var globalCharacterIds = globalManifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"])
+            .Select(static entry => CharaIconPathParser.Parse(entry.BaseName)?.CharacterId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var japanCharacterIds = japanManifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"])
+            .Select(static entry => CharaIconPathParser.Parse(entry.BaseName)?.CharacterId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var globalSupportIds = globalManifest.SearchByPrefix(["support_thumb_", "support_card_s_", "tex_support_card_"])
+            .Select(static entry => SupportIconPathParser.Parse(entry.BaseName)?.SupportId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var japanSupportIds = japanManifest.SearchByPrefix(["support_thumb_", "support_card_s_", "tex_support_card_"])
+            .Select(static entry => SupportIconPathParser.Parse(entry.BaseName)?.SupportId)
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Cast<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var globalSkillIds = new MasterDataDatabase(global.Install.Path).GetAllSkills()
+            .Select(static skill => skill.SkillId)
+            .ToHashSet();
+        var japanSkillIds = new MasterDataDatabase(japan.Install.Path).GetAllSkills()
+            .Select(static skill => skill.SkillId)
+            .ToHashSet();
 
         return new SyncAllCrossRegionReport
         {
