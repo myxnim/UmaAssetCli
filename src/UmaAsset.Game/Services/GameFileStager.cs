@@ -6,21 +6,53 @@ namespace UmaAsset.Game.Services;
 public static class GameFileStager
 {
     private static readonly string StageRoot = Path.Combine(Path.GetTempPath(), "UmaAssetCli", "staged");
+    private static bool staleCleanupDone;
 
-    public static string StageMetaFile(string sourcePath)
+    public static void CleanupStageRoot()
     {
-        Directory.CreateDirectory(StageRoot);
-        var stagedPath = Path.Combine(StageRoot, $"{BuildStableName(sourcePath)}.meta");
+        if (!Directory.Exists(StageRoot))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.GetFiles(StageRoot))
+        {
+            try
+            {
+                File.Delete(file);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    public static TemporaryStagedFile StageMetaFile(string sourcePath)
+    {
+        EnsureStageRootReady();
+        var stagedPath = Path.Combine(StageRoot, $"{BuildStableName(sourcePath)}.{Guid.NewGuid():N}.meta");
         File.Copy(sourcePath, stagedPath, overwrite: true);
-        return stagedPath;
+        return new TemporaryStagedFile(stagedPath);
     }
 
     public static TemporaryStagedFile StageBundleFile(string sourcePath)
     {
-        Directory.CreateDirectory(StageRoot);
+        EnsureStageRootReady();
         var tempPath = Path.Combine(StageRoot, $"{BuildStableName(sourcePath)}.{Guid.NewGuid():N}.bundle");
         File.Copy(sourcePath, tempPath, overwrite: true);
         return new TemporaryStagedFile(tempPath);
+    }
+
+    private static void EnsureStageRootReady()
+    {
+        Directory.CreateDirectory(StageRoot);
+        if (staleCleanupDone)
+        {
+            return;
+        }
+
+        CleanupStageRoot();
+        staleCleanupDone = true;
     }
 
     private static string BuildStableName(string sourcePath)

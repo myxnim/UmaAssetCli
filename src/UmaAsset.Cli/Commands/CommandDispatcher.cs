@@ -7,6 +7,10 @@ public sealed class CommandDispatcher
 {
     public Task<int> RunAsync(string[] args)
     {
+        var console = new CliRunConsole();
+        console.PrepareScreen();
+        console.WriteBanner(CliApplicationMetadata.Get());
+
         if (args.Length == 0 || IsHelp(args[0]))
         {
             PrintHelp(args.Length > 1 ? args[1] : null);
@@ -46,30 +50,73 @@ public sealed class CommandDispatcher
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"error: {ex}");
+            console.WriteError($"error: {ex}");
             return Task.FromResult(1);
         }
     }
 
     private static int RunDetect()
     {
-        var installs = UmaInstallLocator.DetectAll();
+        var console = new CliRunConsole();
+        var report = UmaInstallLocator.DetectReport();
+        var installs = report.Installs;
+        var globalDetected = installs.Any(static install => !install.Name.Contains("Japan", StringComparison.OrdinalIgnoreCase) && !install.Name.Contains("Jpn", StringComparison.OrdinalIgnoreCase));
+        var japanDetected = installs.Any(static install => install.Name.Contains("Japan", StringComparison.OrdinalIgnoreCase) || install.Name.Contains("Jpn", StringComparison.OrdinalIgnoreCase));
         if (installs.Count == 0)
         {
-            Console.WriteLine("No installs detected.");
-            return 1;
+            console.WriteWarning("No installs detected.");
         }
 
-        foreach (var install in installs)
+        console.WriteMetadata([
+            $"Install count: {installs.Count}",
+            $"Global detected: {(globalDetected ? "yes" : "no")}",
+            $"Japan detected: {(japanDetected ? "yes" : "no")}",
+            "Detection sources: LocalLow, DMM, Steam default root, Steam library folders, Steam registry",
+        ]);
+
+        var detectedLines = installs.Count == 0
+            ? ["No valid installs detected."]
+            : installs
+                .OrderBy(static item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .SelectMany(static install => new[]
+                {
+                    $"[{InferRegionFromName(install.Name)}] {install.Name}",
+                    $"  {install.Path}",
+                })
+                .ToArray();
+        console.WriteSection("Detected Installs:", detectedLines);
+
+        var probeLines = report.Probes
+            .OrderBy(static probe => probe.Source, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static probe => probe.Region, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static probe => probe.Path, StringComparer.OrdinalIgnoreCase)
+            .SelectMany(static probe => new[]
+            {
+                $"{(probe.IsValid ? "[FOUND]" : "[MISS]")} {probe.Region} // {probe.Source} // {probe.Name}",
+                $"  {probe.Path}",
+            })
+            .ToArray();
+        console.WriteSection("Checked Paths:", probeLines);
+
+        console.WriteSection("Custom Location:", [
+            "If your files are in a copied folder or a non-standard location, pass one of:",
+            "  --uma-dir <path>",
+            "  --global-dir <path>",
+            "  --japan-dir <path>",
+            "The path must contain dat/, meta, and master/master.mdb.",
+        ]);
+
+        if (!japanDetected)
         {
-            Console.WriteLine($"{install.Name}: {install.Path}");
+            console.WriteWarning("Japanese install was not detected. Pass --japan-dir if it is in a custom Steam library or copied folder.");
         }
 
-        return 0;
+        return installs.Count == 0 ? 1 : 0;
     }
 
     private static int RunSyncGameTora(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var output = GetSingle(options, "--output")
             ?? Path.Combine(Environment.CurrentDirectory, "out", "gametora");
@@ -79,28 +126,51 @@ public sealed class CommandDispatcher
         var includeSupports = options.ContainsKey("--include-supports");
         var noFetch = options.ContainsKey("--no-fetch");
 
-        var sync = new GameToraCatalogSync(cacheDirectory, noFetch);
-        var artifacts = sync.SyncAsync(output, includeSupports, server).GetAwaiter().GetResult();
+        console.WriteMetadata([
+            "Command: sync-gametora",
+            $"Server: {server}",
+            $"Output: {output}",
+            $"Cache: {cacheDirectory}",
+            $"Include supports: {includeSupports}",
+            $"Fetch mode: {(noFetch ? "cache only" : "fetch with cache fallback")}",
+        ]);
 
-        Console.WriteLine($"Character catalog -> {artifacts.CharacterCatalogPath}");
-        Console.WriteLine($"Skill catalog -> {artifacts.SkillCatalogPath}");
+        GameToraSyncArtifacts? artifacts = null;
+        AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .SpinnerStyle(Style.Parse("mediumpurple"))
+            .Start("Syncing GameTora catalogs...", _ =>
+            {
+                var sync = new GameToraCatalogSync(cacheDirectory, noFetch);
+                artifacts = sync.SyncAsync(output, includeSupports, server).GetAwaiter().GetResult();
+            });
+
+        if (artifacts is null)
+        {
+            throw new InvalidOperationException("GameTora sync did not produce artifacts.");
+        }
+
+        var table = new Table().Border(TableBorder.Rounded).Expand();
+        table.AddColumn("[grey]Artifact[/]");
+        table.AddColumn("[grey]Path[/]");
+        table.AddColumn("[grey]Count[/]");
+        table.AddRow("Characters", Markup.Escape(artifacts.CharacterCatalogPath), artifacts.CharacterCount.ToString());
+        table.AddRow("Skills", Markup.Escape(artifacts.SkillCatalogPath), artifacts.SkillCount.ToString());
         if (!string.IsNullOrWhiteSpace(artifacts.SupportCatalogPath))
         {
-            Console.WriteLine($"Support catalog -> {artifacts.SupportCatalogPath}");
+            table.AddRow("Supports", Markup.Escape(artifacts.SupportCatalogPath), artifacts.SupportCount.ToString());
         }
-        Console.WriteLine($"Metadata -> {artifacts.MetadataPath}");
-        Console.WriteLine();
-        Console.WriteLine($"Characters: {artifacts.CharacterCount}");
-        Console.WriteLine($"Skills: {artifacts.SkillCount}");
-        Console.WriteLine($"Supports: {artifacts.SupportCount}");
+        table.AddRow("Metadata", Markup.Escape(artifacts.MetadataPath), "-");
+        AnsiConsole.Write(table);
         return 0;
     }
 
     private static int RunLookup(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
 
         var names = GatherValues(options, "--name");
         names.AddRange(GatherValues(options, "--base-name"));
@@ -115,32 +185,57 @@ public sealed class CommandDispatcher
 
         if (entries.Length == 0)
         {
-            Console.WriteLine("No manifest entries matched.");
+            console.WriteWarning("No manifest entries matched.");
             return 1;
         }
 
         if (options.ContainsKey("--json"))
         {
-            Console.WriteLine(JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
+            console.WriteMetadata([
+                "Command: lookup",
+                $"Game files: {install.Path}",
+                $"Matches: {entries.Length}",
+                "Format: json",
+            ]);
+            AnsiConsole.Write(new Panel(new Text(JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true })))
+            {
+                Header = new PanelHeader("JSON", Justify.Left),
+                Border = BoxBorder.Rounded,
+                Width = 96,
+            });
+            AnsiConsole.WriteLine();
             return 0;
         }
 
+        console.WriteMetadata([
+            "Command: lookup",
+            $"Game files: {install.Path}",
+            $"Matches: {entries.Length}",
+        ]);
+
+        var table = new Table().Border(TableBorder.Rounded).Expand();
+        table.AddColumn("[grey]Name[/]");
+        table.AddColumn("[grey]Hash[/]");
+        table.AddColumn("[grey]Encrypted[/]");
+        table.AddColumn("[grey]Data File[/]");
         foreach (var entry in entries)
         {
-            Console.WriteLine(entry.Name);
-            Console.WriteLine($"  Hash: {entry.HashName}");
-            Console.WriteLine($"  File: {manifest.GetDataFilePath(entry)}");
-            Console.WriteLine($"  Encrypted: {(entry.EncryptionKey != 0 ? "yes" : "no")}");
+            table.AddRow(
+                Markup.Escape(entry.Name),
+                Markup.Escape(entry.HashName),
+                entry.EncryptionKey != 0 ? "[green]yes[/]" : "[grey]no[/]",
+                Markup.Escape(manifest.GetDataFilePath(entry)));
         }
-
+        AnsiConsole.Write(table);
         return 0;
     }
 
     private static int RunSearch(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
 
         var patterns = GatherValues(options, "--contains");
         if (patterns.Count == 0)
@@ -152,29 +247,53 @@ public sealed class CommandDispatcher
         var entries = manifest.SearchBySubstring(patterns, limit);
         if (entries.Count == 0)
         {
-            Console.WriteLine("No manifest entries matched.");
+            console.WriteWarning("No manifest entries matched.");
             return 1;
         }
 
         if (options.ContainsKey("--json"))
         {
-            Console.WriteLine(JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true }));
+            console.WriteMetadata([
+                "Command: search",
+                $"Game files: {install.Path}",
+                $"Contains: {string.Join(", ", patterns)}",
+                $"Matches: {entries.Count}",
+                "Format: json",
+            ]);
+            AnsiConsole.Write(new Panel(new Text(JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true })))
+            {
+                Header = new PanelHeader("JSON", Justify.Left),
+                Border = BoxBorder.Rounded,
+                Width = 96,
+            });
+            AnsiConsole.WriteLine();
             return 0;
         }
 
+        console.WriteMetadata([
+            "Command: search",
+            $"Game files: {install.Path}",
+            $"Contains: {string.Join(", ", patterns)}",
+            $"Matches: {entries.Count}",
+        ]);
+
+        var table = new Table().Border(TableBorder.Rounded).Expand();
+        table.AddColumn("[grey]Name[/]");
+        table.AddColumn("[grey]Hash[/]");
         foreach (var entry in entries)
         {
-            Console.WriteLine(entry.Name);
+            table.AddRow(Markup.Escape(entry.Name), Markup.Escape(entry.HashName));
         }
-
+        AnsiConsole.Write(table);
         return 0;
     }
 
     private static int RunInspectBundle(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var names = GatherValues(options, "--name");
         names.AddRange(GatherValues(options, "--base-name"));
         if (names.Count == 0)
@@ -185,24 +304,40 @@ public sealed class CommandDispatcher
         var entries = manifest.FindMany(names).ToArray();
         if (entries.Length == 0)
         {
-            Console.WriteLine("No manifest entries matched.");
+            console.WriteWarning("No manifest entries matched.");
             return 1;
         }
+
+        console.WriteMetadata([
+            "Command: inspect-bundle",
+            $"Game files: {install.Path}",
+            $"Bundles: {entries.Length}",
+        ]);
 
         var inspector = new BundleAssetInspector(manifest);
         foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
         {
             var assets = inspector.Inspect(entry);
-            Console.WriteLine($"[{entry.Name}]");
+            var table = new Table().Border(TableBorder.Rounded).Expand();
+            table.Title = new TableTitle($"[bold]{Markup.Escape(entry.Name)}[/]");
+            table.AddColumn("[grey]Assets File[/]");
+            table.AddColumn("[grey]Type[/]");
+            table.AddColumn("[grey]Name[/]");
+            table.AddColumn("[grey]PathId[/]");
 
             foreach (var asset in assets.OrderBy(static asset => asset.AssetsFileName, StringComparer.OrdinalIgnoreCase)
                          .ThenBy(static asset => asset.TypeName, StringComparer.OrdinalIgnoreCase)
                          .ThenBy(static asset => asset.Name, StringComparer.OrdinalIgnoreCase))
             {
-                Console.WriteLine($"{asset.AssetsFileName} | {asset.TypeName} | {asset.Name} | {asset.PathId}");
+                table.AddRow(
+                    Markup.Escape(asset.AssetsFileName),
+                    Markup.Escape(asset.TypeName),
+                    Markup.Escape(asset.Name),
+                    asset.PathId.ToString());
             }
 
-            Console.WriteLine();
+            AnsiConsole.Write(table);
+            AnsiConsole.WriteLine();
         }
 
         return 0;
@@ -210,9 +345,10 @@ public sealed class CommandDispatcher
 
     private static int RunDumpAsset(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var names = GatherValues(options, "--name");
         names.AddRange(GatherValues(options, "--base-name"));
         if (names.Count == 0)
@@ -229,20 +365,33 @@ public sealed class CommandDispatcher
         var entry = manifest.FindMany(names).FirstOrDefault();
         if (entry is null)
         {
-            Console.WriteLine("No manifest entries matched.");
+            console.WriteWarning("No manifest entries matched.");
             return 1;
         }
 
         var dump = new BundleAssetFieldDumper(manifest).Dump(entry, assetName);
-        Console.WriteLine(dump);
+        console.WriteMetadata([
+            "Command: dump-asset",
+            $"Game files: {install.Path}",
+            $"Bundle: {entry.Name}",
+            $"Asset: {assetName}",
+        ]);
+        AnsiConsole.Write(new Panel(new Text(dump))
+        {
+            Header = new PanelHeader("Asset Dump", Justify.Left),
+            Border = BoxBorder.Rounded,
+            Width = 96,
+        });
+        AnsiConsole.WriteLine();
         return 0;
     }
 
     private static int RunStage(string[] args, bool treatIdsAsCharaIcons)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var exporter = new AssetExporter(manifest);
 
         var output = GetSingle(options, "--output")
@@ -284,16 +433,15 @@ public sealed class CommandDispatcher
         foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
         {
             var written = exporter.Export(entry, output, decrypt, flatten);
-            Console.WriteLine($"{entry.BaseName} -> {written}");
+            console.WriteSuccess($"{entry.BaseName} -> {written}");
         }
 
         if (missingNames.Length > 0)
         {
-            Console.WriteLine();
-            Console.WriteLine("Missing entries:");
+            console.WriteWarning("Missing entries:");
             foreach (var missing in missingNames)
             {
-                Console.WriteLine($"  {missing}");
+                AnsiConsole.MarkupLine($"[yellow]  {Markup.Escape(missing)}[/]");
             }
         }
 
@@ -304,7 +452,7 @@ public sealed class CommandDispatcher
     {
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var exporter = new TextureBundleExporter(manifest);
 
         var output = GetSingle(options, "--output")
@@ -335,33 +483,24 @@ public sealed class CommandDispatcher
         var entries = manifest.FindMany(requestedNames).ToArray();
         if (entries.Length == 0)
         {
-            Console.WriteLine("No manifest entries matched.");
+            new CliRunConsole().WriteWarning("No manifest entries matched.");
             return 1;
         }
 
-        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
-        {
-            var results = exporter.ExportTextures(entry, output, exactTextureNames);
-            if (results.Count == 0)
-            {
-                Console.WriteLine($"{entry.BaseName} -> no matching Texture2D assets");
-                continue;
-            }
-
-            foreach (var result in results)
-            {
-                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
-            }
-        }
-
-        return 0;
+        return RunTexturePipeline(
+            commandName: treatIdsAsCharaIcons ? "extract-chara-icons" : "extract-textures",
+            install,
+            output,
+            entries,
+            exactTextureNames,
+            exporter);
     }
 
     private static int RunExtractSprites(string[] args)
     {
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var exporter = new SpriteBundleExporter(manifest);
 
         var output = GetSingle(options, "--output")
@@ -378,7 +517,7 @@ public sealed class CommandDispatcher
         var entries = manifest.FindMany(requestedNames).ToArray();
         if (entries.Length == 0)
         {
-            Console.WriteLine("No manifest entries matched.");
+            new CliRunConsole().WriteWarning("No manifest entries matched.");
             return 1;
         }
 
@@ -391,27 +530,59 @@ public sealed class CommandDispatcher
                 StringComparer.OrdinalIgnoreCase);
         }
 
-        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        var console = new CliRunConsole();
+        console.WriteMetadata([
+            "Command: extract-sprites",
+            $"Game files: {install.Path}",
+            $"Output: {output}",
+            $"Bundles: {entries.Length}",
+        ]);
+
+        var failures = new List<string>();
+        var done = new List<string>();
+        var exported = 0;
+        console.RunPipelineProgress(entries.Length, progress =>
         {
-            var entryOutput = Path.Combine(output, entry.BaseName);
-            var results = exporter.ExportSprites(entry, entryOutput, spriteMap);
-            if (results.Count == 0)
+            progress.SeedTargets(entries.Select(static entry => $"sprites // {entry.BaseName}"));
+            foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
             {
-                Console.WriteLine($"{entry.BaseName} -> no matching Sprite assets");
-                continue;
+                progress.StartPhase("sprites", entry.BaseName, 1);
+                try
+                {
+                    var entryOutput = Path.Combine(output, entry.BaseName);
+                    var results = exporter.ExportSprites(entry, entryOutput, spriteMap);
+                    exported += results.Count;
+                    done.Add($"{entry.BaseName}: {results.Count} sprites");
+                    if (results.Count == 0)
+                    {
+                        var message = $"{entry.BaseName} exported no matching Sprite assets";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var message = $"{entry.BaseName} failed: {ex.Message}";
+                    failures.Add(message);
+                    progress.ReportFailure(message);
+                }
+
+                progress.AdvanceItem(entry.BaseName);
+                progress.CompletePhase($"{entry.BaseName} complete");
             }
 
-            foreach (var result in results)
-            {
-                Console.WriteLine($"{entry.BaseName}:{result.SpriteName} -> {result.OutputPath}");
-            }
-        }
+            progress.Finish("sprite extraction complete");
+            return 0;
+        });
 
-        return 0;
+        console.WriteSection("Failed:", failures);
+        console.WriteSection("Done:", done);
+        return exported == 0 ? 1 : 0;
     }
 
     private static int RunGenerateManifest(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var input = GetSingle(options, "--input")
             ?? Path.Combine(Environment.CurrentDirectory, "out", "organized");
@@ -419,7 +590,12 @@ public sealed class CommandDispatcher
             ?? Path.Combine(input, "character-icons.json");
 
         var written = AssetManifestGenerator.Write(input, output);
-        Console.WriteLine(written);
+        console.WriteMetadata([
+            "Command: generate-manifest",
+            $"Input: {input}",
+            $"Output: {output}",
+        ]);
+        console.WriteSection("Done:", [written]);
         return 0;
     }
 
@@ -427,7 +603,7 @@ public sealed class CommandDispatcher
     {
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var exporter = new TextureBundleExporter(manifest);
 
         var ids = GatherValues(options, "--ids");
@@ -442,34 +618,28 @@ public sealed class CommandDispatcher
         var entries = manifest.FindMany(resourceNames).ToArray();
         var missing = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
 
-        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
-        {
-            var results = exporter.ExportTextures(entry, output, [entry.BaseName]);
-            foreach (var result in results)
-            {
-                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
-            }
-        }
+        var exitCode = RunTexturePipeline(
+            commandName: "extract-support-icons",
+            install,
+            output,
+            entries,
+            entries.Select(static entry => entry.BaseName).ToArray(),
+            exporter);
 
         if (missing.Length > 0)
         {
-            Console.WriteLine();
-            Console.WriteLine("Missing entries:");
-            foreach (var item in missing)
-            {
-                Console.WriteLine($"  {item}");
-            }
+            new CliRunConsole().WriteSection("Failed:", missing.Select(static item => $"Missing support resource: {item}").ToArray());
         }
 
-        return entries.Length == 0 ? 1 : 0;
+        return exitCode;
     }
 
     private static int RunExtractSkillIcons(string[] args)
     {
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
-        var master = new MasterDataDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
+        using var master = new MasterDataDatabase(install.Path);
         var exporter = new TextureBundleExporter(manifest);
 
         var skillIds = GatherValues(options, "--skill-ids");
@@ -502,36 +672,23 @@ public sealed class CommandDispatcher
         var missingSkillIds = requestedSkillIds.Where(id => !resolvedSkillIconIds.ContainsKey(id)).ToArray();
         var missingResources = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
 
-        foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+        var exitCode = RunTexturePipeline(
+            commandName: "extract-skill-icons",
+            install,
+            output,
+            entries,
+            entries.Select(static entry => entry.BaseName).ToArray(),
+            exporter);
+
+        var failures = new List<string>();
+        failures.AddRange(missingSkillIds.Select(static skillId => $"Unknown skill id: {skillId}"));
+        failures.AddRange(missingResources.Select(static resource => $"Missing icon resource: {resource}"));
+        if (failures.Count > 0)
         {
-            var results = exporter.ExportTextures(entry, output, [entry.BaseName]);
-            foreach (var result in results)
-            {
-                Console.WriteLine($"{entry.BaseName}:{result.TextureName} -> {result.OutputPath}");
-            }
+            new CliRunConsole().WriteSection("Failed:", failures);
         }
 
-        if (missingSkillIds.Length > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("Unknown skill ids:");
-            foreach (var skillId in missingSkillIds)
-            {
-                Console.WriteLine($"  {skillId}");
-            }
-        }
-
-        if (missingResources.Length > 0)
-        {
-            Console.WriteLine();
-            Console.WriteLine("Missing icon resources:");
-            foreach (var resource in missingResources)
-            {
-                Console.WriteLine($"  {resource}");
-            }
-        }
-
-        return entries.Length == 0 ? 1 : 0;
+        return exitCode;
     }
 
     private static int RunExtractUiIcons(string[] args)
@@ -548,8 +705,6 @@ public sealed class CommandDispatcher
 
         var targets = ResolveUiIconTargets(options, output, definitions);
         var console = new CliRunConsole();
-        var appInfo = CliApplicationMetadata.Get();
-        console.WriteBanner(appInfo);
         console.WriteMetadata(BuildUiIconMetadataLines(targets, definitions, output));
 
         var runSummary = new UiIconExtractionRunSummary();
@@ -558,7 +713,7 @@ public sealed class CommandDispatcher
             progress.SeedTargets(targets.SelectMany(target => definitions.Select(definition => $"{target.Region} // {definition.CatalogName}")));
             foreach (var target in targets)
             {
-                var manifest = new ManifestDatabase(target.Install.Path);
+                using var manifest = new ManifestDatabase(target.Install.Path);
                 var spriteExporter = new SpriteBundleExporter(manifest);
                 var catalogWriter = new SplitUiIconCatalogWriter();
 
@@ -645,16 +800,48 @@ public sealed class CommandDispatcher
 
     private static int RunExportRankBadges(string[] args)
     {
+        var console = new CliRunConsole();
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
-        var manifest = new ManifestDatabase(install.Path);
+        using var manifest = new ManifestDatabase(install.Path);
         var output = GetSingle(options, "--output")
             ?? Path.Combine(Environment.CurrentDirectory, "out", "rank-badges");
         var atlasName = GetSingle(options, "--atlas-name") ?? "rank_tex";
 
-        var written = new RankBadgeExporter(manifest).Export(output, atlasName);
-        Console.WriteLine(written);
-        return 0;
+        console.WriteMetadata([
+            "Command: export-rank-badges",
+            $"Game files: {install.Path}",
+            $"Atlas: {atlasName}",
+            $"Output: {output}",
+        ]);
+
+        var done = new List<string>();
+        var failures = new List<string>();
+        console.RunPipelineProgress(1, progress =>
+        {
+            progress.SeedTargets([$"rank badges // {atlasName}"]);
+            progress.StartPhase("rank badges", atlasName, 1);
+            try
+            {
+                var written = new RankBadgeExporter(manifest).Export(output, atlasName);
+                done.Add(written);
+            }
+            catch (Exception ex)
+            {
+                var message = $"rank badge export failed: {ex.Message}";
+                failures.Add(message);
+                progress.ReportFailure(message);
+            }
+
+            progress.AdvanceItem(atlasName);
+            progress.CompletePhase($"{atlasName} complete");
+            progress.Finish("rank badge export complete");
+            return 0;
+        });
+
+        console.WriteSection("Failed:", failures);
+        console.WriteSection("Done:", done);
+        return failures.Count > 0 ? 1 : 0;
     }
 
     private static int RunExtractRawAtlases(string[] args)
@@ -667,13 +854,12 @@ public sealed class CommandDispatcher
         var targets = ResolveRegionTargets(options, output);
 
         var console = new CliRunConsole();
-        console.WriteBanner(CliApplicationMetadata.Get());
         console.WriteMetadata(BuildRawAtlasMetadataLines(targets, requestedPresets, explicitAtlasNames, output));
 
         var discoveredCounts = new List<int>();
         foreach (var target in targets)
         {
-            var manifest = new ManifestDatabase(target.Install.Path);
+            using var manifest = new ManifestDatabase(target.Install.Path);
             var atlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, requestedPresets, explicitAtlasNames);
             discoveredCounts.Add(atlasNames.Count);
         }
@@ -687,20 +873,20 @@ public sealed class CommandDispatcher
         {
             progress.SeedTargets(targets.SelectMany(target =>
             {
-                var manifest = new ManifestDatabase(target.Install.Path);
+                using var manifest = new ManifestDatabase(target.Install.Path);
                 var atlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, requestedPresets, explicitAtlasNames);
                 return atlasNames.Select(atlasName => $"{target.Region} // {atlasName}");
             }));
             foreach (var target in targets)
             {
-                var manifest = new ManifestDatabase(target.Install.Path);
+                using var manifest = new ManifestDatabase(target.Install.Path);
                 var spriteExporter = new SpriteBundleExporter(manifest);
                 var atlasNames = RawAtlasExportDefinitions.ResolveAtlasNames(manifest, requestedPresets, explicitAtlasNames);
                 var indexEntries = new List<RawAtlasIndexEntry>();
 
                 foreach (var atlasName in atlasNames)
                 {
-                    progress.StartPhase(target.Region, "Raw Atlas", 1);
+                    progress.StartPhase(target.Region, atlasName, 1);
                     var entry = manifest.FindByName(atlasName);
                     if (entry is null)
                     {
@@ -766,7 +952,6 @@ public sealed class CommandDispatcher
         var uiDefinitions = AtlasUiCatalogDefinitions.GetDefinitions(["all"]);
 
         var console = new CliRunConsole();
-        console.WriteBanner(CliApplicationMetadata.Get());
         console.WriteMetadata([
             $"Game Region: {string.Join(", ", targets.Select(static target => target.Region))}",
             "Extraction targets: character icons, support images, skill icons, local skill catalog, curated ui icons, raw atlases",
@@ -800,9 +985,9 @@ public sealed class CommandDispatcher
             }));
             foreach (var target in sharedAssetTargets)
             {
-                var manifest = new ManifestDatabase(target.Install.Path);
+                using var manifest = new ManifestDatabase(target.Install.Path);
                 var textureExporter = new TextureBundleExporter(manifest);
-                var master = new MasterDataDatabase(target.Install.Path);
+                using var master = new MasterDataDatabase(target.Install.Path);
 
                 var characterEntries = manifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"])
                     .Where(static entry => CharaIconPathParser.Parse(entry.BaseName) is not null)
@@ -898,7 +1083,7 @@ public sealed class CommandDispatcher
 
             foreach (var target in targets)
             {
-                var manifest = new ManifestDatabase(target.Install.Path);
+                using var manifest = new ManifestDatabase(target.Install.Path);
                 var spriteExporter = new SpriteBundleExporter(manifest);
                 Directory.CreateDirectory(target.RegionRoot);
 
@@ -1068,6 +1253,14 @@ public sealed class CommandDispatcher
         return int.TryParse(value, out var parsed) ? parsed : fallback;
     }
 
+    private static string InferRegionFromName(string installName)
+    {
+        return installName.Contains("japan", StringComparison.OrdinalIgnoreCase)
+            || installName.Contains("jpn", StringComparison.OrdinalIgnoreCase)
+            ? "japan"
+            : "global";
+    }
+
     private static bool IsHelp(string arg)
     {
         return arg is "help" or "--help" or "-h" or "/?";
@@ -1075,16 +1268,72 @@ public sealed class CommandDispatcher
 
     private static int Fail(string message)
     {
-        Console.Error.WriteLine($"error: {message}");
-        Console.Error.WriteLine();
+        new CliRunConsole().WriteError(message);
+        AnsiConsole.WriteLine();
         PrintHelp();
         return 1;
     }
 
+    private static int RunTexturePipeline(
+        string commandName,
+        UmaInstall install,
+        string output,
+        IReadOnlyCollection<ManifestEntry> entries,
+        IReadOnlyCollection<string> exactTextureNames,
+        TextureBundleExporter exporter)
+    {
+        var console = new CliRunConsole();
+        console.WriteMetadata([
+            $"Command: {commandName}",
+            $"Game files: {install.Path}",
+            $"Output: {output}",
+            $"Entries: {entries.Count}",
+            $"Texture filters: {(exactTextureNames.Count == 0 ? "all matching root textures" : string.Join(", ", exactTextureNames))}",
+        ]);
+
+        var failures = new List<string>();
+        var done = new List<string>();
+        var exported = 0;
+        console.RunPipelineProgress(entries.Count, progress =>
+        {
+            progress.SeedTargets(entries.Select(static entry => $"textures // {entry.BaseName}"));
+            foreach (var entry in entries.OrderBy(static entry => entry.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                progress.StartPhase("textures", entry.BaseName, 1);
+                try
+                {
+                    var results = exporter.ExportTextures(entry, output, exactTextureNames);
+                    exported += results.Count;
+                    done.Add($"{entry.BaseName}: {results.Count} textures");
+                    if (results.Count == 0)
+                    {
+                        var message = $"{entry.BaseName} exported no matching Texture2D assets";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var message = $"{entry.BaseName} failed: {ex.Message}";
+                    failures.Add(message);
+                    progress.ReportFailure(message);
+                }
+
+                progress.AdvanceItem(entry.BaseName);
+                progress.CompletePhase($"{entry.BaseName} complete");
+            }
+
+            progress.Finish($"{commandName} complete");
+            return 0;
+        });
+
+        console.WriteSection("Failed:", failures);
+        console.WriteSection("Done:", done);
+        return exported == 0 ? 1 : 0;
+    }
+
     private static void PrintHelp(string? command = null)
     {
-        new CliRunConsole().WriteBanner(CliApplicationMetadata.Get());
-
         if (!string.IsNullOrWhiteSpace(command))
         {
             PrintCommandHelp(command);
@@ -1420,8 +1669,8 @@ public sealed class CommandDispatcher
             return null;
         }
 
-        var globalManifest = new ManifestDatabase(global.Install.Path);
-        var japanManifest = new ManifestDatabase(japan.Install.Path);
+        using var globalManifest = new ManifestDatabase(global.Install.Path);
+        using var japanManifest = new ManifestDatabase(japan.Install.Path);
         var globalCharacterIds = globalManifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"])
             .Select(static entry => CharaIconPathParser.Parse(entry.BaseName)?.CharacterId)
             .Where(static id => !string.IsNullOrWhiteSpace(id))
@@ -1442,10 +1691,12 @@ public sealed class CommandDispatcher
             .Where(static id => !string.IsNullOrWhiteSpace(id))
             .Cast<string>()
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var globalSkillIds = new MasterDataDatabase(global.Install.Path).GetAllSkills()
+        using var globalMaster = new MasterDataDatabase(global.Install.Path);
+        using var japanMaster = new MasterDataDatabase(japan.Install.Path);
+        var globalSkillIds = globalMaster.GetAllSkills()
             .Select(static skill => skill.SkillId)
             .ToHashSet();
-        var japanSkillIds = new MasterDataDatabase(japan.Install.Path).GetAllSkills()
+        var japanSkillIds = japanMaster.GetAllSkills()
             .Select(static skill => skill.SkillId)
             .ToHashSet();
 

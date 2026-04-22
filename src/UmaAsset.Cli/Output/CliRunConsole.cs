@@ -4,6 +4,16 @@ public sealed class CliRunConsole
 {
     private const int MaxContentWidth = 96;
 
+    public int BoundedWidth => GetBoundedWidth();
+
+    public void PrepareScreen()
+    {
+        if (!Console.IsOutputRedirected)
+        {
+            AnsiConsole.Clear();
+        }
+    }
+
     public void WriteBanner(CliApplicationInfo info)
     {
         var grid = new Grid()
@@ -88,6 +98,21 @@ public sealed class CliRunConsole
 
         AnsiConsole.Write(panel);
         AnsiConsole.WriteLine();
+    }
+
+    public void WriteSuccess(string message)
+    {
+        AnsiConsole.MarkupLine($"[green]{Markup.Escape(message)}[/]");
+    }
+
+    public void WriteWarning(string message)
+    {
+        AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(message)}[/]");
+    }
+
+    public void WriteError(string message)
+    {
+        AnsiConsole.MarkupLine($"[red]{Markup.Escape(message)}[/]");
     }
 
     internal static Spectre.Console.Rendering.IRenderable BuildProgressRenderable(PipelineProgressSnapshot snapshot)

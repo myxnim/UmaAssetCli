@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using System.Runtime.Versioning;
+using Microsoft.Win32;
 
 namespace UmaAsset.Game.Services;
 
@@ -6,44 +8,67 @@ public static class UmaInstallLocator
 {
     public static IReadOnlyList<UmaInstall> DetectAll()
     {
+        return DetectReport().Installs;
+    }
+
+    public static UmaDetectionReport DetectReport()
+    {
         var installs = new List<UmaInstall>();
+        var probes = new List<UmaDetectionProbe>();
         var localLow = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             "AppData",
             "LocalLow",
             "Cygames");
 
-        AddIfValid(
+        AddProbe(
             installs,
+            probes,
             "Default (AppData)",
+            "global",
+            "LocalLow",
             Path.Combine(localLow, "umamusume"));
 
-        AddIfValid(
+        AddProbe(
             installs,
+            probes,
             "Default (AppData Japan)",
+            "japan",
+            "LocalLow",
             Path.Combine(localLow, "UmamusumePrettyDerby_Jpn"));
+
+        var dmmConfigPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "dmmgameplayer5",
+            "dmmgame.cnf");
+        probes.Add(new UmaDetectionProbe(
+            "DMM config",
+            "japan",
+            "DMM",
+            NormalizePath(dmmConfigPath),
+            File.Exists(dmmConfigPath)));
 
         foreach (var dmmInstall in DetectDmmInstalls())
         {
-            AddIfValid(installs, dmmInstall.Name, dmmInstall.Path);
+            AddProbe(installs, probes, dmmInstall.Name, "japan", "DMM", dmmInstall.Path);
         }
 
-        AddIfValid(
-            installs,
-            "Steam (Japan)",
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Steam",
-                "steamapps",
-                "common",
-                "UmamusumePrettyDerby_Jpn",
-                "UmamusumePrettyDerby_Jpn_Data",
-                "Persistent"));
+        foreach (var steamInstall in DetectSteamInstalls())
+        {
+            AddProbe(installs, probes, steamInstall.Name, "japan", "Steam", steamInstall.Path);
+        }
 
-        return installs
-            .GroupBy(static install => install.Path, StringComparer.OrdinalIgnoreCase)
-            .Select(static group => group.First())
-            .ToArray();
+        return new UmaDetectionReport
+        {
+            Installs = installs
+                .GroupBy(static install => install.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(static group => group.First())
+                .ToList(),
+            Probes = probes
+                .GroupBy(static probe => probe.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(static group => group.First())
+                .ToList(),
+        };
     }
 
     public static UmaInstall Resolve(string? explicitPath)
@@ -86,11 +111,20 @@ public static class UmaInstallLocator
             && File.Exists(Path.Combine(path, "master", "master.mdb"));
     }
 
-    private static void AddIfValid(List<UmaInstall> installs, string name, string path)
+    private static void AddProbe(
+        List<UmaInstall> installs,
+        List<UmaDetectionProbe> probes,
+        string name,
+        string region,
+        string source,
+        string path)
     {
-        if (IsValid(path))
+        var isValid = IsValid(path);
+        var normalizedPath = NormalizePath(path);
+        probes.Add(new UmaDetectionProbe(name, region, source, normalizedPath, isValid));
+        if (isValid)
         {
-            installs.Add(new UmaInstall(name, path));
+            installs.Add(new UmaInstall(name, normalizedPath));
         }
     }
 
@@ -136,5 +170,155 @@ public static class UmaInstallLocator
                 "DMM Games (Japan)",
                 Path.Combine(installDir, "umamusume_Data", "Persistent"));
         }
+    }
+
+    private static IEnumerable<UmaInstall> DetectSteamInstalls()
+    {
+        foreach (var steamRoot in GetSteamRoots())
+        {
+            yield return new UmaInstall(
+                "Steam (Japan)",
+                Path.Combine(
+                    steamRoot,
+                    "steamapps",
+                    "common",
+                    "UmamusumePrettyDerby_Jpn",
+                    "UmamusumePrettyDerby_Jpn_Data",
+                    "Persistent"));
+        }
+    }
+
+    private static IEnumerable<string> GetSteamRoots()
+    {
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var defaultSteamRoots = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Steam"),
+        };
+
+        foreach (var root in defaultSteamRoots)
+        {
+            if (Directory.Exists(root))
+            {
+                roots.Add(NormalizePath(root));
+            }
+        }
+
+        foreach (var root in GetSteamRegistryRoots())
+        {
+            if (Directory.Exists(root))
+            {
+                roots.Add(NormalizePath(root));
+            }
+        }
+
+        foreach (var root in roots.ToArray())
+        {
+            var libraryFile = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            if (!File.Exists(libraryFile))
+            {
+                continue;
+            }
+
+            foreach (var libraryRoot in ParseSteamLibraryFolders(libraryFile))
+            {
+                roots.Add(libraryRoot);
+            }
+        }
+
+        return roots;
+    }
+
+    private static IEnumerable<string> GetSteamRegistryRoots()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            yield break;
+        }
+
+        foreach (var root in GetSteamRegistryRootsWindows())
+        {
+            yield return root;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static IEnumerable<string> GetSteamRegistryRootsWindows()
+    {
+        var registryLocations = new[]
+        {
+            (RegistryHive.CurrentUser, @"Software\Valve\Steam", "SteamPath"),
+            (RegistryHive.CurrentUser, @"Software\Valve\Steam", "SteamExe"),
+            (RegistryHive.LocalMachine, @"Software\WOW6432Node\Valve\Steam", "InstallPath"),
+            (RegistryHive.LocalMachine, @"Software\Valve\Steam", "InstallPath"),
+        };
+
+        foreach (var (hive, keyPath, valueName) in registryLocations)
+        {
+            string? rawValue = null;
+            try
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(hive, RegistryView.Registry64);
+                using var key = baseKey.OpenSubKey(keyPath);
+                rawValue = key?.GetValue(valueName)?.ToString();
+            }
+            catch
+            {
+            }
+
+            if (string.IsNullOrWhiteSpace(rawValue))
+            {
+                continue;
+            }
+
+            var candidate = Environment.ExpandEnvironmentVariables(rawValue);
+            if (candidate.EndsWith("steam.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                candidate = Path.GetDirectoryName(candidate) ?? candidate;
+            }
+
+            yield return candidate;
+        }
+    }
+
+    private static IEnumerable<string> ParseSteamLibraryFolders(string libraryFoldersPath)
+    {
+        foreach (var line in File.ReadLines(libraryFoldersPath))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.Contains("\"path\"", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var parts = trimmed.Split('"', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length < 4)
+            {
+                continue;
+            }
+
+            var candidate = Environment.ExpandEnvironmentVariables(parts[3]).Replace(@"\\", @"\");
+            if (Directory.Exists(candidate))
+            {
+                yield return NormalizePath(candidate);
+            }
+        }
+    }
+
+    private static string NormalizePath(string path)
+    {
+        var expanded = Environment.ExpandEnvironmentVariables(path);
+        try
+        {
+            expanded = Path.GetFullPath(expanded);
+        }
+        catch
+        {
+        }
+
+        return expanded
+            .Replace('/', '\\')
+            .TrimEnd('\\');
     }
 }

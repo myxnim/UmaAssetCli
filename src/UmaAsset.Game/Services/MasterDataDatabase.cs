@@ -2,14 +2,14 @@ using SQLite;
 
 namespace UmaAsset.Game.Services;
 
-public sealed class MasterDataDatabase
+public sealed class MasterDataDatabase : IDisposable
 {
     private static bool sqliteInitialized;
-    private readonly string masterPath;
+    private readonly TemporaryStagedFile stagedMasterFile;
 
     public MasterDataDatabase(string umaDir)
     {
-        masterPath = Path.Combine(umaDir, "master", "master.mdb");
+        stagedMasterFile = GameFileStager.StageMetaFile(Path.Combine(umaDir, "master", "master.mdb"));
     }
 
     public IReadOnlyDictionary<int, int> GetSkillIconIds(IEnumerable<int> skillIds)
@@ -57,7 +57,12 @@ public sealed class MasterDataDatabase
             sqliteInitialized = true;
         }
 
-        return new SQLiteConnection(masterPath, SQLiteOpenFlags.ReadOnly);
+        return new SQLiteConnection(stagedMasterFile.Path, SQLiteOpenFlags.ReadOnly);
+    }
+
+    public void Dispose()
+    {
+        stagedMasterFile.Dispose();
     }
 
     private sealed class SkillIconRow

@@ -19,7 +19,7 @@ Current scope:
 
 - detect supported installs automatically
 - read encrypted `meta`
-- stage bundle copies before parsing them
+- stage `meta`, `master.mdb`, and bundle copies before parsing them
 - export character, support, skill, and curated UI icons
 - export raw atlas sprite bundles with generated browse indexes
 - generate split JSON catalogs for atlas-backed UI icons
@@ -28,6 +28,7 @@ Current scope:
 ## Safe usage
 
 If you do not pass `--uma-dir`, the CLI looks in standard install locations first.
+That includes LocalLow, DMM, the default Steam root, Steam library folders, and Steam registry paths.
 
 If you want the safest workflow, copy the game's data directory somewhere temporary and point the CLI at that copy.
 
@@ -44,7 +45,7 @@ robocopy "D:\Stuff\Games\Steam\steamapps\common\UmamusumePrettyDerby_Jpn\Umamusu
 dotnet run --project .\src\UmaAsset.Cli -- extract-ui-icons --uma-dir C:\temp\uma-jp-copy --region japan --output .\out\ui
 ```
 
-The CLI now stages bundle files to temp before opening them, but using a copied `Persistent` directory is still the least alarming workflow for users.
+The CLI stages `meta`, `master/master.mdb`, and bundle files to temp before opening them, but using a copied `Persistent` directory is still the least alarming workflow for users.
 
 ## Region
 
@@ -121,6 +122,7 @@ dotnet run --project .\src\UmaAsset.Cli -- sync-all --global-dir "%USERPROFILE%\
 - `--uma-dir` should point at the game data directory that contains `dat/`, `meta`, and `master/master.mdb`.
 - `extract-ui-icons` can process one copied install with `--uma-dir` or both regions together with `--global-dir` and `--japan-dir`.
 - `extract-raw-atlases` can process one copied install with `--uma-dir` or both regions together with `--global-dir` and `--japan-dir`.
+- `detect` checks LocalLow, DMM, the default Steam root, Steam library folders, and Steam registry roots.
 - exploratory commands are available too: `lookup`, `search`, `inspect-bundle`, `dump-asset`, `stage`, `extract-textures`, and `extract-sprites`.
 - `sync-gametora` is metadata-oriented and does not download remote images.
 - `extract-ui-icons` exports flattened PNGs under `<output>/<region>/icons/` and split catalogs under `<output>/<region>/catalogs/`.

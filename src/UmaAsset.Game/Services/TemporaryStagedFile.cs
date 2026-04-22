@@ -5,6 +5,7 @@ public sealed class TemporaryStagedFile : IDisposable
     public TemporaryStagedFile(string path)
     {
         Path = path;
+        GameFileCleanupRegistry.Register(path);
     }
 
     public string Path { get; }
@@ -20,6 +21,10 @@ public sealed class TemporaryStagedFile : IDisposable
         }
         catch
         {
+        }
+        finally
+        {
+            GameFileCleanupRegistry.Unregister(Path);
         }
     }
 }
