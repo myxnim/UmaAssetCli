@@ -745,11 +745,29 @@ public sealed class CommandDispatcher
                         static icon => icon.SpriteName,
                         static icon => icon.SpriteName,
                         StringComparer.OrdinalIgnoreCase);
-                    var results = spriteExporter.ExportSprites(
-                        entry,
-                        target.IconsRoot,
-                        spriteMap,
-                        spriteName => progress.AdvanceItem(spriteName));
+                    IReadOnlyList<SpriteExportResult> results;
+                    try
+                    {
+                        results = spriteExporter.ExportSprites(
+                            entry,
+                            target.IconsRoot,
+                            spriteMap,
+                            spriteName => progress.AdvanceItem(spriteName),
+                            (spriteName, ex) =>
+                            {
+                                var message = $"[{target.Region}] sprite {spriteName} from {definition.AtlasName} failed: {ex.Message}";
+                                runSummary.Failures.Add(message);
+                                progress.ReportFailure(message);
+                            });
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] atlas {definition.AtlasName} failed: {ex.Message}";
+                        runSummary.Failures.Add(message);
+                        progress.ReportFailure(message);
+                        progress.CompletePhase($"{target.Region} // {definition.CatalogName} atlas failed");
+                        continue;
+                    }
                     if (results.Count == 0)
                     {
                         var message = $"[{target.Region}] no matching sprites exported from {definition.AtlasName}";
@@ -978,7 +996,7 @@ public sealed class CommandDispatcher
         var regionReports = new List<SyncAllRegionReport>();
         var sharedSkillRecords = new Dictionary<int, MasterSkillRecord>();
         var sharedAssetTargets = targets
-            .OrderBy(static target => string.Equals(target.Region, "japan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .OrderBy(static target => string.Equals(target.Region, "global", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .ToArray();
         var textureExportOptions = CliToolConfigLoader.CreateTextureExportOptions();
         console.RunPipelineProgress(targets.Count * 6, progress =>
@@ -1121,7 +1139,28 @@ public sealed class CommandDispatcher
                         static icon => icon.SpriteName,
                         static icon => icon.SpriteName,
                         StringComparer.OrdinalIgnoreCase);
-                    var results = spriteExporter.ExportSprites(entry, uiIconsRoot, spriteMap, spriteName => progress.AdvanceItem(spriteName));
+                    IReadOnlyList<SpriteExportResult> results;
+                    try
+                    {
+                        results = spriteExporter.ExportSprites(
+                            entry,
+                            uiIconsRoot,
+                            spriteMap,
+                            spriteName => progress.AdvanceItem(spriteName),
+                            (spriteName, ex) =>
+                            {
+                                var message = $"[{target.Region}] sprite {spriteName} from {definition.AtlasName} failed: {ex.Message}";
+                                failures.Add(message);
+                                progress.ReportFailure(message);
+                            });
+                    }
+                    catch (Exception ex)
+                    {
+                        var message = $"[{target.Region}] atlas {definition.AtlasName} failed: {ex.Message}";
+                        failures.Add(message);
+                        progress.ReportFailure(message);
+                        continue;
+                    }
                     var catalogEntries = results
                         .Select(result =>
                         {
