@@ -49,6 +49,37 @@ public sealed class MasterDataDatabase : IDisposable
             """);
     }
 
+    public IReadOnlyDictionary<int, SupportCardDetailRecord> GetSupportCardDetails(IEnumerable<int> supportIds)
+    {
+        var ids = supportIds
+            .Distinct()
+            .OrderBy(static id => id)
+            .ToArray();
+
+        if (ids.Length == 0)
+        {
+            return new Dictionary<int, SupportCardDetailRecord>();
+        }
+
+        using var connection = OpenConnection();
+        var parameterNames = ids.Select(static (_, index) => $"?{index + 1}").ToArray();
+        var command =
+            $"""
+             SELECT id AS SupportId,
+                    detail_pos_x AS DetailPosX,
+                    detail_pos_y AS DetailPosY,
+                    detail_scale AS DetailScale,
+                    detail_rot_z AS DetailRotZ
+             FROM support_card_data
+             WHERE id IN ({string.Join(", ", parameterNames)})
+             ORDER BY id
+             """;
+        var parameters = ids.Cast<object>().ToArray();
+
+        return connection.Query<SupportCardDetailRecord>(command, parameters)
+            .ToDictionary(static row => row.SupportId);
+    }
+
     private SQLiteConnection OpenConnection()
     {
         if (!sqliteInitialized)
@@ -82,4 +113,17 @@ public sealed class MasterSkillRecord
     public int IconId { get; set; }
 
     public string? NameJa { get; set; }
+}
+
+public sealed class SupportCardDetailRecord
+{
+    public int SupportId { get; set; }
+
+    public int DetailPosX { get; set; }
+
+    public int DetailPosY { get; set; }
+
+    public int DetailScale { get; set; }
+
+    public int DetailRotZ { get; set; }
 }

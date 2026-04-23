@@ -11,10 +11,17 @@ namespace UmaAsset.Game.Services;
 public sealed class TextureBundleExporter
 {
     private readonly ManifestDatabase manifestDatabase;
+    private readonly IReadOnlyDictionary<int, SupportCardDetailRecord> supportCardDetails;
+    private readonly TextureExportOptions options;
 
-    public TextureBundleExporter(ManifestDatabase manifestDatabase)
+    public TextureBundleExporter(
+        ManifestDatabase manifestDatabase,
+        IReadOnlyDictionary<int, SupportCardDetailRecord>? supportCardDetails = null,
+        TextureExportOptions? options = null)
     {
         this.manifestDatabase = manifestDatabase;
+        this.supportCardDetails = supportCardDetails ?? new Dictionary<int, SupportCardDetailRecord>();
+        this.options = options ?? TextureExportOptions.Default;
     }
 
     public IReadOnlyList<TextureExportResult> ExportTextures(
@@ -63,6 +70,7 @@ public sealed class TextureBundleExporter
                 var textureFile = TextureFile.ReadTextureFile(baseField);
                 var pictureData = TryLoadPictureData(textureFile, bundle, assetsFile);
                 using var image = LoadImage(textureFile, pictureData);
+                Image<Rgba32>? framedImage = null;
 
                 var safeTextureName = SanitizeFileName(textureName);
                 var directory = BuildOutputDirectory(outputRoot, entry, assetsFileName, textureName);
@@ -74,7 +82,15 @@ public sealed class TextureBundleExporter
                     continue;
                 }
 
-                image.SaveAsPng(outputPath);
+                try
+                {
+                    framedImage = TryApplySupportThumbFraming(textureName, image);
+                    (framedImage ?? image).SaveAsPng(outputPath);
+                }
+                finally
+                {
+                    framedImage?.Dispose();
+                }
 
                 results.Add(new TextureExportResult(textureName, outputPath));
             }
@@ -176,6 +192,20 @@ public sealed class TextureBundleExporter
                 }
             }
         }
+    }
+
+    private Image<Rgba32>? TryApplySupportThumbFraming(string textureName, Image<Rgba32> image)
+    {
+        var supportInfo = SupportIconPathParser.Parse(textureName);
+        if (supportInfo is null
+            || !string.Equals(supportInfo.Family, "thumb", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return image.Clone(context => context.Resize(
+            options.SupportThumbPortrait.Width,
+            options.SupportThumbPortrait.Height));
     }
 
     private static bool TryDecodeBlockCompressed(

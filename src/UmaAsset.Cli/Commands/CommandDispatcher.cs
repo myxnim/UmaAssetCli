@@ -1,4 +1,5 @@
 using System.Text.Json;
+using UmaAsset.Cli.Config;
 using UmaAsset.Cli.Output;
 
 namespace UmaAsset.Cli.Commands;
@@ -607,7 +608,8 @@ public sealed class CommandDispatcher
         var options = ParseOptions(args);
         var install = UmaInstallLocator.Resolve(GetSingle(options, "--uma-dir"));
         using var manifest = new ManifestDatabase(install.Path);
-        var exporter = new TextureBundleExporter(manifest);
+        using var master = new MasterDataDatabase(install.Path);
+        var textureExportOptions = CliToolConfigLoader.CreateTextureExportOptions();
 
         var ids = GatherValues(options, "--ids");
         if (ids.Count == 0)
@@ -619,6 +621,9 @@ public sealed class CommandDispatcher
             ?? Path.Combine(Environment.CurrentDirectory, "out", "support-icons");
         var resourceNames = SupportIconResourceNames.FromIds(ids);
         var entries = manifest.FindMany(resourceNames).ToArray();
+        var supportDetails = master.GetSupportCardDetails(
+            ids.Select(static id => int.TryParse(id, out var parsed) ? parsed : throw new ArgumentException($"Invalid support id '{id}'.")));
+        var exporter = new TextureBundleExporter(manifest, supportDetails, textureExportOptions);
         var missing = resourceNames.Except(entries.Select(static entry => entry.BaseName), StringComparer.OrdinalIgnoreCase).ToArray();
 
         var exitCode = RunTexturePipeline(
@@ -975,6 +980,7 @@ public sealed class CommandDispatcher
         var sharedAssetTargets = targets
             .OrderBy(static target => string.Equals(target.Region, "japan", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
             .ToArray();
+        var textureExportOptions = CliToolConfigLoader.CreateTextureExportOptions();
         console.RunPipelineProgress(targets.Count * 6, progress =>
         {
             progress.SeedTargets(targets.SelectMany(target => new[]
@@ -989,8 +995,13 @@ public sealed class CommandDispatcher
             foreach (var target in sharedAssetTargets)
             {
                 using var manifest = new ManifestDatabase(target.Install.Path);
-                var textureExporter = new TextureBundleExporter(manifest);
                 using var master = new MasterDataDatabase(target.Install.Path);
+                var supportDetails = master.GetSupportCardDetails(
+                    manifest.SearchByPrefix(["support_thumb_", "support_card_s_", "tex_support_card_"])
+                        .Select(static entry => SupportIconPathParser.Parse(entry.BaseName)?.SupportId)
+                        .Where(static supportId => !string.IsNullOrWhiteSpace(supportId))
+                        .Select(static supportId => int.Parse(supportId!)));
+                var textureExporter = new TextureBundleExporter(manifest, supportDetails, textureExportOptions);
 
                 var characterEntries = manifest.SearchByPrefix(["chr_icon_", "trained_chr_icon_", "chr_icon_round_", "chr_icon_plus_"])
                     .Where(static entry => CharaIconPathParser.Parse(entry.BaseName) is not null)

@@ -12,4 +12,10 @@
     <ProjectReference Include="..\UmaAsset.Game\UmaAsset.Game.csproj" />
     <ProjectReference Include="..\UmaAsset.Pipeline\UmaAsset.Pipeline.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="umaassetcli.config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>
