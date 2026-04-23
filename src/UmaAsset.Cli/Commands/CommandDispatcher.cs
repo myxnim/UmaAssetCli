@@ -562,9 +562,12 @@ public sealed class CommandDispatcher
                 }
                 catch (Exception ex)
                 {
-                    var message = $"{entry.BaseName} failed: {ex.Message}";
+                    var message = $"{entry.BaseName} failed: {ex}";
                     failures.Add(message);
                     progress.ReportFailure(message);
+                    File.AppendAllText(
+                        Path.Combine(output, "diagnostic-errors.log"),
+                        $"{DateTimeOffset.Now:u} {entry.BaseName}{Environment.NewLine}{ex}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}");
                 }
 
                 progress.AdvanceItem(entry.BaseName);

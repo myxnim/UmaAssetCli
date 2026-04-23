@@ -35,19 +35,34 @@ public sealed class EncryptedAssetStream : FileStream
             return read;
         }
 
-        var bytesPos = (int)Position - read;
-        if (bytesPos < HeaderSize)
-        {
-            var offsetAdjustment = offset - bytesPos;
-            bytesPos = HeaderSize;
-            offset = offsetAdjustment + HeaderSize;
-        }
-
-        for (var i = offset; i < read; i++)
-        {
-            buffer[i] = (byte)(buffer[i] ^ keys[bytesPos++ % keys.Length]);
-        }
+        DecryptBuffer(buffer.AsSpan(offset, read), Position - read);
 
         return read;
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
+        var read = base.Read(buffer);
+        if (read <= 0)
+        {
+            return read;
+        }
+
+        DecryptBuffer(buffer[..read], Position - read);
+        return read;
+    }
+
+    private void DecryptBuffer(Span<byte> buffer, long absoluteStartPosition)
+    {
+        for (var index = 0; index < buffer.Length; index++)
+        {
+            var absolutePosition = absoluteStartPosition + index;
+            if (absolutePosition < HeaderSize)
+            {
+                continue;
+            }
+
+            buffer[index] = (byte)(buffer[index] ^ keys[absolutePosition % keys.Length]);
+        }
     }
 }
